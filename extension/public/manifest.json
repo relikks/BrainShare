@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "SIGSHARE",
+  "version": "0.1.0",
+  "description": "Build a personal searchable corpus of visited web pages.",
+  "action": {
+    "default_popup": "index.html",
+    "default_title": "SIGSHARE"
+  },
+  "permissions": ["storage", "activeTab", "scripting", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["src/content/index.ts"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["search.html"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
