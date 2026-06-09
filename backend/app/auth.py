@@ -1,24 +1,27 @@
+from typing import Annotated
+
 from fastapi import Depends, Header, HTTPException, status
 
-from . import db
+from .db import SessionDep
+from .models import User
+from .services import users as user_service
 
 
-async def current_user_uuid(
-    authorization: str | None = Header(default=None),
-) -> str:
+async def current_user(
+    session: SessionDep,
+    authorization: Annotated[str | None, Header()] = None,
+) -> User:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Bearer token",
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing Bearer token"
         )
     token = authorization.split(" ", 1)[1].strip()
-    username = await db.get_user_by_uuid(token)
-    if username is None:
+    user = await user_service.get_user_by_uuid(session, token)
+    if user is None:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid user UUID",
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user UUID"
         )
-    return token
+    return user
 
 
-UserDep = Depends(current_user_uuid)
+CurrentUser = Annotated[User, Depends(current_user)]

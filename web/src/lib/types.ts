@@ -1,0 +1,74 @@
+export type Modality = "text" | "image" | "audio" | "video";
+export type Role = "owner" | "editor" | "viewer";
+export type FileStatus = "pending" | "ready" | "failed";
+
+export interface UserOut {
+  username: string;
+  uuid: string;
+}
+export interface Collection {
+  id: string;
+  name: string;
+  slug: string;
+  role: Role;
+  created_at: string;
+}
+export interface Directory {
+  id: string;
+  collection_id: string;
+  parent_id: string | null;
+  name: string;
+  path: string;
+  created_at: string;
+}
+export interface FileItem {
+  id: string;
+  collection_id: string;
+  directory_id: string | null;
+  name: string;
+  modality: Modality;
+  mime: string;
+  size: number;
+  status: FileStatus;
+  error: string | null;
+  created_at: string;
+}
+export interface Crumb {
+  id: string | null;
+  name: string;
+}
+export interface Browse {
+  collection: Collection;
+  directory_id: string | null;
+  breadcrumb: Crumb[];
+  directories: Directory[];
+  files: FileItem[];
+}
+export interface MemberOut {
+  username: string;
+  role: Role;
+}
+export interface Segment {
+  space: string;
+  score: number;
+  text: string | null;
+  segment: string | null;
+  goto_url: string | null;
+}
+export interface SearchHit {
+  file_id: string;
+  file_name: string;
+  modality: Modality;
+  collection_id: string;
+  directory_id: string | null;
+  dir_path: string;
+  breadcrumb: Crumb[];
+  score: number;
+  best: Segment;
+  matched_spaces: string[];
+}
+export interface SearchResults {
+  hits: SearchHit[];
+}
+
+export const MODALITIES: Modality[] = ["text", "image", "audio", "video"];

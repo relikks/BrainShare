@@ -1,60 +1,68 @@
-# Personal Corpus
+# BrainShare
 
-Chrome extension + FastAPI backend that lets you build a private, searchable corpus from the web pages you visit. One click saves the active page; one query searches across everything you've saved; "Go to" jumps back to the exact section using Chrome's native Scroll-to-Text-Fragment.
-
-```
-[Chrome Extension] ──── Bearer <uuid> ────▶ [FastAPI] ──▶ [Qdrant]
-                                                │
-                                                └──▶ Google embeddings
-```
-
-## End-to-end test path
-
-### 1. Backend
-
-```powershell
-cd C:\Users\dsan\rag-extension\backend
-docker compose up -d                       # Qdrant on :6333
-copy .env.example .env                     # GOOGLE_API_KEY is auto-picked from
-                                           # C:/Users/dsan/Documents/scripts/.env
-uv sync                                    # or: pip install -e .
-uv run uvicorn app.main:app --reload --port 8000
-```
-
-Sanity check: `curl http://localhost:8000/health` → `{"status":"ok"}`.
-
-### 2. Extension
-
-```powershell
-cd C:\Users\dsan\rag-extension\extension
-npm install
-npm run build                              # outputs ./dist
-```
-
-Then in Chrome:
-1. `chrome://extensions` → enable Developer mode
-2. **Load unpacked** → select `extension/dist`
-3. Pin the extension from the puzzle icon
-
-### 3. Smoke flow
-
-1. Click the extension icon. First run shows the Setup screen.
-2. Endpoint = `http://localhost:8000`. Type a username, **Generate UUID**.
-3. Copy the UUID (it's the only credential — there's no recovery).
-4. Open any article page (e.g. an MDN doc), open the popup → **Save** tab → *Add this page to my corpus*.
-5. Wait for "Saved N chunks".
-6. Go to the **Search** tab, type something from the article, hit search.
-7. Click a result row to expand the snippet, then **Go to this section** — Chrome opens the page and scrolls to the matched text.
-
-## Project layout
+A collaborative **multi-modal knowledge drive + semantic second brain**. Create
+**collections** (shared spaces), nest **directories**, and post **files of any
+modality** (text, image, audio, video). Every file is embedded by the model that
+fits its type, so the whole corpus is searchable in **natural language across any
+combination of modalities** — globally or scoped to a single folder and its subtree.
 
 ```
-backend/   FastAPI + Qdrant client + Google embeddings + SQLite users
-extension/ React + Vite + Tailwind + shadcn primitives, MV3
+web/ (Next.js + shader)  ─┐
+extension/ (MV3)          ├─ HTTP (Bearer uuid) ─▶ backend/ (FastAPI)
+                          ┘                          ├─ SQLite/Postgres  (tree + ACL)
+                                                     ├─ Qdrant           (per-modality spaces)
+                                                     └─ blobs
+                                                         │ HTTPS
+                                                         ▼
+                                              modal/ (GPU inference)
+                                       text · image · audio · video  (SOTA, scale-to-zero)
 ```
 
-See `backend/README.md` and `extension/CHANGES.md` for details.
+See [`CLAUDE.md`](./CLAUDE.md) for the full architecture, standards, and the
+embedding-space / Modal-container design.
 
-## Swapping embeddings
+## Layout
 
-`backend/app/embeddings.py` is the only Google touchpoint. Reimplement `embed_documents` and `embed_query` against any other backend (TEI, OpenAI, local) without touching the rest. If you change vector dimensionality, update `EMBEDDING_DIM` in `.env` and recreate the Qdrant collection.
+| Dir | What |
+|---|---|
+| `backend/` | FastAPI + SQLModel + Qdrant. Collections/dirs/files, the embed pipeline, multi-modal search. |
+| `modal/` | Modal app: 4 GPU embedder classes (Qwen3 · SigLIP2 · CLAP/WavLink+Whisper · X-CLIP), scale-to-zero. |
+| `web/` | Next.js + `@drekis/shader` drive + search UI. |
+| `extension/` | The original Chrome extension (kept; repointed later). |
+
+## Run it
+
+**1. Modal (GPU inference)** — token in `~/.modal.toml` (profile `relikks`):
+```bash
+cd modal && modal deploy app.py
+```
+
+**2. Backend** (dev uses SQLite + embedded Qdrant — no Docker needed):
+```bash
+cd backend
+python -m venv .venv && . .venv/bin/activate && pip install -e .
+uvicorn app.main:app --reload --port 8000      # http://localhost:8000/health
+```
+Set `EMBED_STUB=true` in `backend/.env` to run fully offline with deterministic
+stub vectors (no Modal calls) — handy for UI work and tests.
+
+**3. Web**:
+```bash
+cd web && pnpm install && pnpm dev             # http://localhost:4700
+```
+Open it, go to **Settings**, create an identity (username → UUID), then build
+collections, upload files, and search.
+
+## Search modes
+
+- **Search** page — across all (or selected) collections, filtered by modality.
+- **Browse** a collection — the "Search in this folder" box scopes to the current
+  directory **and its whole subtree** (toggle off for this-folder-only). Backed by
+  a materialized `ancestor_dir_ids` array on every chunk → exact, index-friendly,
+  rename-safe subtree filtering.
+
+## Notes
+
+- **Dev vs prod stores**: SQLite + embedded Qdrant for dev; Postgres + served Qdrant
+  in prod — connection strings only, code is store-agnostic.
+- **Secrets** (Modal token, etc.) live only in gitignored `backend/.env` / `~/.modal.toml`.

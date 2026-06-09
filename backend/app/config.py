@@ -1,30 +1,33 @@
-import os
-from pathlib import Path
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-# Fallback: reuse the same .env that the semantic_search scripts already read.
-_SHARED_DOTENV = Path("C:/Users/dsan/Documents/scripts/.env")
-if not os.environ.get("GOOGLE_API_KEY") and _SHARED_DOTENV.exists():
-    for _line in _SHARED_DOTENV.read_text(encoding="utf-8").splitlines():
-        _line = _line.strip()
-        if _line.startswith("GOOGLE_API_KEY="):
-            os.environ["GOOGLE_API_KEY"] = _line.split("=", 1)[1].strip().strip("'\"")
-            break
 
 
 class Settings(BaseSettings):
+    """All config is env-overridable; no secrets are baked in. See backend/.env."""
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    google_api_key: str
-    qdrant_url: str = "http://localhost:6333"
+    # ── Relational store ── SQLite for dev, Postgres in prod (same SQLModel code).
+    database_url: str = "sqlite+aiosqlite:///./data/brainshare.db"
+
+    # ── Vector store (Qdrant) ── embedded local path for dev; URL for served mode.
+    qdrant_path: str | None = "./data/qdrant"
+    qdrant_url: str | None = None
     qdrant_api_key: str | None = None
-    collection_name: str = "web_corpus"
-    embedding_model: str = "gemini-embedding-001"
-    embedding_dim: int = 768
-    users_db_path: str = "./data/users.db"
-    cors_origins: str = "chrome-extension://*,http://localhost:5173"
-    brand_name: str = "SIGSHARE"
+
+    # ── Blob storage ──
+    blob_dir: str = "./data/blobs"
+
+    # ── Modal (GPU inference) ── token also lives in ~/.modal.toml (profile relikks).
+    modal_app_name: str = "brainshare-embed"
+    modal_profile: str | None = None
+    modal_token_id: str | None = None
+    modal_token_secret: str | None = None
+    # When true, skip Modal and use deterministic local stub vectors (offline dev/tests).
+    embed_stub: bool = False
+
+    # ── App ──
+    cors_origins: str = "chrome-extension://*,http://localhost:5173,http://localhost:4700"
+    brand_name: str = "BrainShare"
     brand_logo_path: str = "logo.svg"  # relative to app/static/
 
     @property

@@ -1,49 +1,33 @@
-import os
-import uuid as uuidlib
+from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Annotated
 
-import aiosqlite
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlmodel import SQLModel
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from . import models  # noqa: F401 — ensure tables are registered on metadata
 from .config import settings
 
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-    username   TEXT PRIMARY KEY,
-    uuid       TEXT NOT NULL UNIQUE,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_users_uuid ON users(uuid);
-"""
+# echo off; pool defaults fine for dev. For SQLite async, aiosqlite handles a file.
+engine = create_async_engine(settings.database_url, future=True)
+_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
 async def init_db() -> None:
-    Path(settings.users_db_path).parent.mkdir(parents=True, exist_ok=True)
-    async with aiosqlite.connect(settings.users_db_path) as db:
-        await db.executescript(SCHEMA)
-        await db.commit()
+    """Dev convenience: create tables from metadata. Prod uses Alembic migrations."""
+    if settings.database_url.startswith("sqlite"):
+        # ./data/brainshare.db → ensure parent dir exists.
+        db_path = settings.database_url.split(":///", 1)[-1]
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
 
 
-async def create_user(username: str) -> tuple[str, str] | None:
-    """Return (username, uuid) or None if username already exists."""
-    new_uuid = str(uuidlib.uuid4())
-    async with aiosqlite.connect(settings.users_db_path) as db:
-        try:
-            await db.execute(
-                "INSERT INTO users (username, uuid) VALUES (?, ?)",
-                (username, new_uuid),
-            )
-            await db.commit()
-        except aiosqlite.IntegrityError:
-            return None
-    return username, new_uuid
+async def get_session() -> AsyncIterator[AsyncSession]:
+    async with _session_factory() as session:
+        yield session
 
 
-async def get_user_by_uuid(user_uuid: str) -> str | None:
-    """Return username for a given uuid, or None if not found."""
-    async with aiosqlite.connect(settings.users_db_path) as db:
-        async with db.execute(
-            "SELECT username FROM users WHERE uuid = ?", (user_uuid,)
-        ) as cur:
-            row = await cur.fetchone()
-            return row[0] if row else None
+SessionDep = Annotated[AsyncSession, Depends(get_session)]

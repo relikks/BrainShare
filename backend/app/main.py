@@ -8,21 +8,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, vector_store
+from . import db
 from .config import settings
-from .routers import branding, ingest, search, users
+from .routers import branding, collections, directories, files, search, users
 
-logger = logging.getLogger("sigshare")
+logger = logging.getLogger("brainshare")
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await db.init_db()
-    await vector_store.ensure_collection()
     yield
 
 
-app = FastAPI(title="RAG Extension Backend", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="BrainShare Backend", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,7 +37,9 @@ _STATIC_DIR.mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
 app.include_router(users.router)
-app.include_router(ingest.router)
+app.include_router(collections.router)
+app.include_router(directories.router)
+app.include_router(files.router)
 app.include_router(search.router)
 app.include_router(branding.router)
 
@@ -46,9 +47,7 @@ app.include_router(branding.router)
 @app.exception_handler(RequestValidationError)
 async def validation_handler(request: Request, exc: RequestValidationError):
     errors = exc.errors()
-    logger.warning(
-        "Validation error on %s %s: %s", request.method, request.url.path, errors
-    )
+    logger.warning("Validation error on %s %s: %s", request.method, request.url.path, errors)
     return JSONResponse(status_code=422, content={"detail": errors})
 
 

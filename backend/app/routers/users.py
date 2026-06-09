@@ -1,19 +1,25 @@
 from fastapi import APIRouter, HTTPException, status
 
-from .. import db
+from ..auth import CurrentUser
+from ..db import SessionDep
 from ..schemas import UserOut, UserRegister
+from ..services import users as user_service
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-async def register(payload: UserRegister) -> UserOut:
+async def register(payload: UserRegister, session: SessionDep) -> UserOut:
     username = payload.username.strip()
-    result = await db.create_user(username)
-    if result is None:
+    user = await user_service.create_user(session, username)
+    if user is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Username '{username}' already exists",
         )
-    name, user_uuid = result
-    return UserOut(username=name, uuid=user_uuid)
+    return UserOut(username=user.username, uuid=user.uuid)
+
+
+@router.get("/me", response_model=UserOut)
+async def me(user: CurrentUser) -> UserOut:
+    return UserOut(username=user.username, uuid=user.uuid)
