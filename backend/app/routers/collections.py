@@ -11,12 +11,32 @@ from ..dto import (
     FileOut,
     MemberAdd,
     MemberOut,
+    ModuleInfo,
+    ModulesOut,
+    ModulesUpdate,
 )
 from ..models import Role
+from ..modules import MODULES, effective_modules
 from ..services import collections as svc
 from ..services import directories as dir_svc
 from ..services import files as file_svc
 from ..services.permissions import require_member
+
+
+def _modules_out(coll) -> ModulesOut:
+    eff = effective_modules(coll)
+    return ModulesOut(
+        modules=[
+            ModuleInfo(
+                name=name,
+                label=meta["label"],
+                desc=meta["desc"],
+                modalities=meta["modalities"],
+                enabled=eff[name],
+            )
+            for name, meta in MODULES.items()
+        ]
+    )
 
 router = APIRouter(prefix="/collections", tags=["collections"])
 
@@ -88,3 +108,26 @@ async def add_member(
     await require_member(session, user, collection_id, min_role=Role.owner)
     target, role = await svc.add_member(session, collection_id, payload.username, payload.role)
     return MemberOut(username=target.username, role=role)
+
+
+# ── AI modules (per-collection) ──
+@router.get("/{collection_id}/modules", response_model=ModulesOut)
+async def get_modules(collection_id: str, user: CurrentUser, session: SessionDep) -> ModulesOut:
+    c, _ = await require_member(session, user, collection_id)
+    return _modules_out(c)
+
+
+@router.put("/{collection_id}/modules", response_model=ModulesOut)
+async def set_modules(
+    collection_id: str, payload: ModulesUpdate, user: CurrentUser, session: SessionDep
+) -> ModulesOut:
+    c, _ = await require_member(session, user, collection_id, min_role=Role.editor)
+    overrides = dict(c.modules or {})
+    for name, val in payload.modules.items():
+        if name in MODULES and isinstance(val, bool):
+            overrides[name] = val
+    c.modules = overrides
+    session.add(c)
+    await session.commit()
+    await session.refresh(c)
+    return _modules_out(c)

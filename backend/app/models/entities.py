@@ -28,6 +28,9 @@ class Collection(SQLModel, table=True):
     owner_id: str = Field(foreign_key="user.id", index=True)
     name: str
     slug: str = Field(index=True)
+    # Per-collection AI module overrides (module name → bool). Defaults live in app/modules.py;
+    # the pipeline gates each processing step (image/audio/video embed, transcription, OCR…) on this.
+    modules: dict = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=utcnow)
 
 

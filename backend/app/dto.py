@@ -124,3 +124,20 @@ class SearchHit(BaseModel):
 
 class SearchResults(BaseModel):
     hits: list[SearchHit]
+
+
+# ── AI modules (per-collection) ──
+class ModuleInfo(BaseModel):
+    name: str
+    label: str
+    desc: str
+    modalities: list[str]
+    enabled: bool
+
+
+class ModulesOut(BaseModel):
+    modules: list[ModuleInfo]
+
+
+class ModulesUpdate(BaseModel):
+    modules: dict[str, bool]  # module name → enabled override

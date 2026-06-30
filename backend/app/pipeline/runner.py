@@ -18,6 +18,7 @@ from pathlib import Path
 from ..db import _session_factory
 from ..embedding import get_embedder
 from ..models import Collection, Directory, File, FileStatus, Modality, new_id, utcnow
+from ..modules import module_on
 from ..storage import get_storage
 from .. import vector_store
 from .extractors import chunk_text, decode_text
@@ -135,24 +136,32 @@ async def _embed(session, f: File) -> None:
     emb = get_embedder()
     await vector_store.delete_file(f.id)  # idempotent re-embed (edit path)
 
+    # Each step is gated on the collection's enabled modules (defaults in app/modules.py).
+    # Text is always indexed; the rest are opt-out per collection.
     if f.modality is Modality.text:
         await _embed_transcript_or_text(emb, base, text_decoded)
 
     elif f.modality is Modality.image:
-        vec = (await emb.embed_image([data]))[0]
-        await vector_store.upsert("image", [_point(vec, base, segment="image", text=f.name)])
+        if module_on(coll, "image"):
+            vec = (await emb.embed_image([data]))[0]
+            await vector_store.upsert("image", [_point(vec, base, segment="image", text=f.name)])
 
     elif f.modality is Modality.audio:
-        avec = (await emb.embed_audio([data]))[0]
-        await vector_store.upsert("audio", [_point(avec, base, segment="audio", text=f.name)])
-        await _embed_transcript_or_text(emb, base, await emb.transcribe(data), label="transcript")
+        if module_on(coll, "audio"):
+            avec = (await emb.embed_audio([data]))[0]
+            await vector_store.upsert("audio", [_point(avec, base, segment="audio", text=f.name)])
+        if module_on(coll, "transcription"):
+            await _embed_transcript_or_text(emb, base, await emb.transcribe(data), label="transcript")
 
     elif f.modality is Modality.video:
-        vvec = (await emb.embed_video([data]))[0]
-        await vector_store.upsert("video", [_point(vvec, base, segment="video", text=f.name)])
-        avec = (await emb.embed_audio([data]))[0]
-        await vector_store.upsert("audio", [_point(avec, base, segment="audio-track", text=f.name)])
-        await _embed_transcript_or_text(emb, base, await emb.transcribe(data), label="transcript")
+        if module_on(coll, "video"):
+            vvec = (await emb.embed_video([data]))[0]
+            await vector_store.upsert("video", [_point(vvec, base, segment="video", text=f.name)])
+        if module_on(coll, "audio"):
+            avec = (await emb.embed_audio([data]))[0]
+            await vector_store.upsert("audio", [_point(avec, base, segment="audio-track", text=f.name)])
+        if module_on(coll, "transcription"):
+            await _embed_transcript_or_text(emb, base, await emb.transcribe(data), label="transcript")
 
 
 async def _embed_transcript_or_text(emb, base: dict, text: str, label: str = "chunk") -> None:
