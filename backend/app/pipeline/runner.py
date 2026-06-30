@@ -8,7 +8,12 @@ so search can scope to any collection or directory subtree and show breadcrumbs.
 
 from __future__ import annotations
 
+import io
+import json
 import logging
+import subprocess
+import tempfile
+from pathlib import Path
 
 from ..db import _session_factory
 from ..embedding import get_embedder
@@ -18,6 +23,71 @@ from .. import vector_store
 from .extractors import chunk_text, decode_text
 
 log = logging.getLogger("brainshare.pipeline")
+
+
+def _ffprobe(data: bytes, name: str) -> dict:
+    """Best-effort media metadata via ffprobe (duration / fps / dims / sample_rate / channels).
+    Returns {} when ffmpeg is absent or the probe fails — metadata is optional, never fatal."""
+    try:
+        with tempfile.NamedTemporaryFile(suffix=Path(name).suffix, delete=True) as tmp:
+            tmp.write(data)
+            tmp.flush()
+            out = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-print_format", "json",
+                 "-show_format", "-show_streams", tmp.name],
+                capture_output=True, timeout=30,
+            )
+        if out.returncode != 0:
+            return {}
+        info = json.loads(out.stdout)
+    except Exception:  # noqa: BLE001 — ffmpeg may be missing; degrade gracefully
+        return {}
+    meta: dict = {}
+    dur = info.get("format", {}).get("duration")
+    if dur:
+        meta["duration_s"] = round(float(dur), 2)
+    for s in info.get("streams", []):
+        if s.get("codec_type") == "video":
+            if s.get("width"):
+                meta["width"] = s["width"]
+            if s.get("height"):
+                meta["height"] = s["height"]
+            rate = s.get("r_frame_rate", "")
+            if "/" in rate:
+                n, d = rate.split("/")
+                if float(d or 0):
+                    meta["fps"] = round(float(n) / float(d), 2)
+        elif s.get("codec_type") == "audio":
+            if s.get("sample_rate"):
+                meta["sample_rate"] = int(s["sample_rate"])
+            if s.get("channels"):
+                meta["channels"] = s["channels"]
+    return meta
+
+
+def _extract_meta(modality: Modality, data: bytes, name: str, text: str | None = None) -> dict:
+    """Per-type structured metadata for §1 filters. Best-effort — must never raise."""
+    meta: dict = {"size_bytes": len(data)}
+    try:
+        if modality is Modality.image:
+            from PIL import Image  # pillow is a dependency
+
+            with Image.open(io.BytesIO(data)) as im:
+                w, h = im.size
+                meta["width"], meta["height"] = w, h
+                if h:
+                    meta["aspect"] = round(w / h, 4)
+                meta["orientation"] = (
+                    "landscape" if w > h else "portrait" if h > w else "square"
+                )
+        elif modality is Modality.text and text is not None:
+            meta["word_count"] = len(text.split())
+            meta["char_count"] = len(text)
+        elif modality in (Modality.audio, Modality.video):
+            meta.update(_ffprobe(data, name))
+    except Exception:  # noqa: BLE001 — metadata is best-effort, must not fail the embed
+        log.warning("metadata extraction failed for %s", name, exc_info=True)
+    return meta
 
 
 def _point(vec: list[float], base: dict, **extra) -> dict:
@@ -56,11 +126,17 @@ async def _embed(session, f: File) -> None:
     }
 
     data = await get_storage().get(f.blob_key)
+
+    # §1 — per-type metadata → File.meta + stamped into every point's payload (search filters on it).
+    text_decoded = decode_text(data, f.name) if f.modality is Modality.text else None
+    f.meta = _extract_meta(f.modality, data, f.name, text_decoded)
+    base["meta"] = f.meta
+
     emb = get_embedder()
     await vector_store.delete_file(f.id)  # idempotent re-embed (edit path)
 
     if f.modality is Modality.text:
-        await _embed_transcript_or_text(emb, base, decode_text(data, f.name))
+        await _embed_transcript_or_text(emb, base, text_decoded)
 
     elif f.modality is Modality.image:
         vec = (await emb.embed_image([data]))[0]

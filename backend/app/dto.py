@@ -63,6 +63,7 @@ class FileOut(_FromAttrs):
     size: int
     status: FileStatus
     error: str | None = None
+    meta: dict = {}  # §1 per-type metadata (image dims, video/audio duration, text word_count…)
     created_at: datetime
 
 

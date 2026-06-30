@@ -31,8 +31,18 @@ export interface FileItem {
   size: number;
   status: FileStatus;
   error: string | null;
+  meta?: Record<string, number | string>; // §1 per-type metadata (dims, duration, word_count…)
   created_at: string;
 }
+
+// §1 — a structured filter on file metadata, mirrors the backend MetaFilter.
+export type FilterOp = "eq" | "in" | "gte" | "lte" | "gt" | "lt";
+export interface MetaFilter {
+  field: string;
+  op: FilterOp;
+  value: number | string | (number | string)[];
+}
+
 export interface Crumb {
   id: string | null;
   name: string;
