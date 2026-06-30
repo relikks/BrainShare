@@ -93,6 +93,7 @@ def _build_filter(
     file_id: str | None = None,
     ancestor_dir_id: str | None = None,
     directory_id: str | None = None,
+    meta_filters: Iterable[Any] | None = None,
 ) -> models.Filter | None:
     must: list[models.Condition] = []
     if collection_ids:
@@ -120,6 +121,15 @@ def _build_filter(
         must.append(
             models.FieldCondition(key="directory_id", match=models.MatchValue(value=directory_id))
         )
+    # §1 — generic, type-aware metadata filters on payload `meta.<field>` (duck-typed MetaFilter).
+    for f in meta_filters or ():
+        key = f"meta.{f.field}"
+        if f.op == "in":
+            must.append(models.FieldCondition(key=key, match=models.MatchAny(any=list(f.value))))
+        elif f.op in ("gte", "lte", "gt", "lt"):
+            must.append(models.FieldCondition(key=key, range=models.Range(**{f.op: f.value})))
+        else:  # eq
+            must.append(models.FieldCondition(key=key, match=models.MatchValue(value=f.value)))
     return models.Filter(must=must) if must else None
 
 
@@ -132,6 +142,7 @@ async def search(
     modalities: Iterable[Modality] | None = None,
     ancestor_dir_id: str | None = None,
     directory_id: str | None = None,
+    meta_filters: Iterable[Any] | None = None,
 ) -> list[models.ScoredPoint]:
     name = _coll(space)
     flt = _build_filter(
@@ -139,6 +150,7 @@ async def search(
         modalities=modalities,
         ancestor_dir_id=ancestor_dir_id,
         directory_id=directory_id,
+        meta_filters=meta_filters,
     )
 
     def _do() -> list[models.ScoredPoint]:

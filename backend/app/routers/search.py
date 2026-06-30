@@ -75,6 +75,7 @@ async def search(payload: SearchQuery, user: CurrentUser, session: SessionDep) -
             modalities=payload.modalities,
             ancestor_dir_id=ancestor_dir_id,
             directory_id=directory_id,
+            meta_filters=payload.filters,
         )
         for p in points:
             pl = p.payload or {}

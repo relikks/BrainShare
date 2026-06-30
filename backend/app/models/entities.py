@@ -64,5 +64,9 @@ class File(SQLModel, table=True):
     blob_key: str = ""
     status: FileStatus = Field(default=FileStatus.pending, index=True)
     error: str | None = None
+    # Per-type structured metadata (§1): image {width,height,aspect}; video {duration_s,fps,...};
+    # audio {duration_s,sample_rate,...}; text {word_count,lang}. Also stamped into the Qdrant payload
+    # (`meta`) so search can filter on it (MetaFilter → Range/Match).
+    meta: dict = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

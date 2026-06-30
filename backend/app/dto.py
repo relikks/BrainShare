@@ -2,6 +2,7 @@
 `schemas.py`, which still serves the extension routers)."""
 
 from datetime import datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -79,12 +80,22 @@ class BrowseOut(BaseModel):
 
 
 # ── Search ──
+class MetaFilter(BaseModel):
+    """A structured filter on a file's per-type metadata (Qdrant payload `meta.<field>`).
+    Combined with vector ranking: it only narrows the candidate set, never reorders. (§1)"""
+
+    field: str  # e.g. "duration_s", "width", "height", "fps", "word_count", "lang"
+    op: Literal["eq", "in", "gte", "lte", "gt", "lt"] = "eq"
+    value: Any
+
+
 class SearchQuery(BaseModel):
     query: str = Field(min_length=1)
     modalities: list[Modality] = Field(default_factory=lambda: list(Modality))
     collection_ids: list[str] | None = None  # None = all accessible
     directory_id: str | None = None  # scope to a folder…
     include_subdirs: bool = True  # …and everything under it
+    filters: list[MetaFilter] = Field(default_factory=list)  # type-aware metadata filters (§1)
     top_k: int = Field(default=20, ge=1, le=100)
     min_score: float = Field(default=0.0, ge=0.0, le=1.0)  # relevance floor (noise cut)
 
