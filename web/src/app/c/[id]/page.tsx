@@ -36,6 +36,7 @@ import {
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
+import { FilePreviewDialog } from "@/components/FileViewer";
 import { addMember, browse, createDirectory, deleteFile, uploadFile } from "@/lib/api";
 import { getUuid } from "@/lib/config";
 import type { Browse, FileItem, Modality, Role } from "@/lib/types";
@@ -56,6 +57,7 @@ function Browser() {
   const [newFolder, setNewFolder] = useState("");
   const [shareUser, setShareUser] = useState("");
   const [shareRole, setShareRole] = useState<Role>("viewer");
+  const [preview, setPreview] = useState<FileItem | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const load = () => {
@@ -231,8 +233,11 @@ function Browser() {
             {data.files.map((f) => {
               const Icon = ICON[f.modality];
               return (
-                <Card key={f.id}>
-                  <CardContent className="flex items-center gap-3 p-3">
+                <Card key={f.id} className="cursor-pointer transition-colors hover:border-primary">
+                  <CardContent
+                    className="flex items-center gap-3 p-3"
+                    onClick={() => setPreview(f)}
+                  >
                     <Icon className="size-5 shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">{f.name}</div>
@@ -242,7 +247,14 @@ function Browser() {
                     </div>
                     {f.status === "pending" && <Badge variant="secondary">embedding…</Badge>}
                     {f.status === "failed" && <Badge variant="destructive">failed</Badge>}
-                    <Button variant="ghost" size="sm" onClick={() => remove(f)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        remove(f);
+                      }}
+                    >
                       <Trash2 className="size-4" />
                     </Button>
                   </CardContent>
@@ -252,6 +264,8 @@ function Browser() {
           </div>
         )}
       </div>
+
+      <FilePreviewDialog file={preview} onClose={() => setPreview(null)} />
     </div>
   );
 }
