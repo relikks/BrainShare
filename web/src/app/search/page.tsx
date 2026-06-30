@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
+import { MetaFilterBar, toMetaFilters, type FilterState } from "@/components/MetaFilterBar";
 import { search } from "@/lib/api";
 import { getUuid } from "@/lib/config";
 import { MODALITIES, type Modality, type SearchHit } from "@/lib/types";
@@ -39,12 +40,16 @@ function Filters({
   subdirs,
   setSubdirs,
   scoped,
+  filterState,
+  setFilterState,
 }: {
   mods: Set<Modality>;
   toggle: (m: Modality) => void;
   subdirs: boolean;
   setSubdirs: (v: boolean) => void;
   scoped: boolean;
+  filterState: FilterState;
+  setFilterState: (s: FilterState) => void;
 }) {
   const hidden = useHideOnScroll(true);
   return (
@@ -72,6 +77,8 @@ function Filters({
         </div>
       </div>
 
+      <MetaFilterBar active={mods} value={filterState} onChange={setFilterState} />
+
       {scoped && (
         <div>
           <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -96,6 +103,8 @@ function SearchView() {
   const [subdirs, setSubdirs] = useState(true);
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [filterState, setFilterState] = useState<FilterState>({});
+  const metaFilters = toMetaFilters(filterState, mods);
 
   function toggle(m: Modality) {
     setMods((prev) => {
@@ -117,6 +126,7 @@ function SearchView() {
       collection_ids: cid ? [cid] : null,
       directory_id: dir,
       include_subdirs: subdirs,
+      filters: metaFilters,
     })
       .then((r) => active && setHits(r.hits))
       .catch((e) => active && toast.error(String((e as Error).message)))
@@ -125,7 +135,7 @@ function SearchView() {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, cid, dir, subdirs, [...mods].sort().join(",")]);
+  }, [q, cid, dir, subdirs, [...mods].sort().join(","), JSON.stringify(metaFilters)]);
 
   return (
     <div className="flex w-full">
@@ -135,6 +145,8 @@ function SearchView() {
         subdirs={subdirs}
         setSubdirs={setSubdirs}
         scoped={!!dir}
+        filterState={filterState}
+        setFilterState={setFilterState}
       />
 
       <div className="min-w-0 flex-1 px-5 py-5">

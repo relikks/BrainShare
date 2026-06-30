@@ -7,6 +7,7 @@ import type {
   Directory,
   FileItem,
   MemberOut,
+  MetaFilter,
   Modality,
   Role,
   SearchResults,
@@ -115,6 +116,7 @@ export interface SearchOpts {
   collection_ids?: string[] | null;
   directory_id?: string | null;
   include_subdirs?: boolean;
+  filters?: MetaFilter[]; // §1 type-aware metadata filters
   top_k?: number;
   min_score?: number;
 }
