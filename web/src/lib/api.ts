@@ -9,6 +9,7 @@ import type {
   MemberOut,
   MetaFilter,
   Modality,
+  ModuleInfo,
   Role,
   SearchResults,
   UserOut,
@@ -125,4 +126,14 @@ export const search = (query: string, opts: SearchOpts = {}) =>
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query, ...opts }),
+  });
+
+// ── per-collection AI modules ──
+export const getModules = (collectionId: string) =>
+  req<{ modules: ModuleInfo[] }>(`/collections/${collectionId}/modules`);
+export const setModules = (collectionId: string, modules: Record<string, boolean>) =>
+  req<{ modules: ModuleInfo[] }>(`/collections/${collectionId}/modules`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ modules }),
   });

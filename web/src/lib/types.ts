@@ -82,3 +82,12 @@ export interface SearchResults {
 }
 
 export const MODALITIES: Modality[] = ["text", "image", "audio", "video"];
+
+// Per-collection AI module (mirrors the backend ModuleInfo).
+export interface ModuleInfo {
+  name: string;
+  label: string;
+  desc: string;
+  modalities: string[];
+  enabled: boolean;
+}

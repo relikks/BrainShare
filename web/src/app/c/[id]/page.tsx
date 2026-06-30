@@ -23,6 +23,7 @@ import {
   useHideOnScroll,
 } from "@drekis/shader";
 import {
+  Cpu,
   FileText,
   Folder,
   FolderPlus,
@@ -37,6 +38,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { FilePreviewDialog } from "@/components/FileViewer";
+import { ModulesDialog } from "@/components/ModulesDialog";
 import { addMember, browse, createDirectory, deleteFile, uploadFile } from "@/lib/api";
 import { getUuid } from "@/lib/config";
 import type { Browse, FileItem, Modality, Role } from "@/lib/types";
@@ -58,6 +60,7 @@ function Browser() {
   const [shareUser, setShareUser] = useState("");
   const [shareRole, setShareRole] = useState<Role>("viewer");
   const [preview, setPreview] = useState<FileItem | null>(null);
+  const [modulesOpen, setModulesOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const load = () => {
@@ -204,6 +207,10 @@ function Browser() {
               </div>
             </DialogContent>
           </Dialog>
+
+          <Button variant="outline" size="sm" onClick={() => setModulesOpen(true)}>
+            <Cpu className="size-4" /> Modules
+          </Button>
         </div>
 
         {/* folders */}
@@ -266,6 +273,12 @@ function Browser() {
       </div>
 
       <FilePreviewDialog file={preview} onClose={() => setPreview(null)} />
+      <ModulesDialog
+        collectionId={id}
+        canEdit={data.collection.role !== "viewer"}
+        open={modulesOpen}
+        onClose={() => setModulesOpen(false)}
+      />
     </div>
   );
 }
