@@ -11,17 +11,22 @@ const USER_KEY = "brainshare.username";
 // Works both deployed and in local dev (where Next also proxies).
 export const DEFAULT_ENDPOINT = "/api/be";
 
+// Temporary: sessions without a stored identity default to the seeded
+// "relik" account so the deployed demo works without Settings setup.
+const DEFAULT_UUID = "e2c578bf-1061-4488-9879-ca1b76b0b796";
+const DEFAULT_USERNAME = "relik";
+
 export function getEndpoint(): string {
   if (typeof window === "undefined") return DEFAULT_ENDPOINT;
   return localStorage.getItem(ENDPOINT_KEY) || DEFAULT_ENDPOINT;
 }
 export function getUuid(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(UUID_KEY);
+  return localStorage.getItem(UUID_KEY) || DEFAULT_UUID;
 }
 export function getUsername(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(USER_KEY);
+  return localStorage.getItem(USER_KEY) || DEFAULT_USERNAME;
 }
 export function setIdentity(endpoint: string, uuid: string, username: string) {
   localStorage.setItem(ENDPOINT_KEY, endpoint.replace(/\/+$/, ""));

@@ -74,7 +74,7 @@ def _l2norm(t):
 
 
 # ── Text: Qwen3-Embedding (text files, transcripts, text query) ───────────────
-@app.cls(gpu="L4", image=image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=2, min_containers=0)
+@app.cls(gpu="L4", image=image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=300, min_containers=0)
 class TextEmbedder:
     @modal.enter(snap=True)
     def load(self):
@@ -97,7 +97,7 @@ class TextEmbedder:
 
 
 # ── Image: SigLIP 2 (image files; text tower for image query) ─────────────────
-@app.cls(gpu="L4", image=image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=2, min_containers=0)
+@app.cls(gpu="L4", image=image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=300, min_containers=0)
 class ImageEmbedder:
     @modal.enter(snap=True)
     def load(self):
@@ -126,7 +126,7 @@ class ImageEmbedder:
 
 
 # ── Audio: CLAP (+ Whisper transcript) ────────────────────────────────────────
-@app.cls(gpu="T4", image=image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=2, min_containers=0)
+@app.cls(gpu="T4", image=image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=300, min_containers=0)
 class AudioEmbedder:
     @modal.enter(snap=True)
     def load(self):
@@ -187,7 +187,7 @@ class AudioEmbedder:
 
 
 # ── Video: X-CLIP (temporal; text tower for video query) ──────────────────────
-@app.cls(gpu="T4", image=image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=2, min_containers=0)
+@app.cls(gpu="T4", image=image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=300, min_containers=0)
 class VideoEmbedder:
     @modal.enter(snap=True)
     def load(self):
