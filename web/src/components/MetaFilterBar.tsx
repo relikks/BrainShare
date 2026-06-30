@@ -1,6 +1,15 @@
 "use client";
 
 import { Input, Label } from "@drekis/shader";
+import {
+  Clock,
+  type LucideIcon,
+  MoveHorizontal,
+  MoveVertical,
+  RectangleHorizontal,
+  SlidersHorizontal,
+  Type,
+} from "lucide-react";
 
 import type { MetaFilter, Modality } from "@/lib/types";
 
@@ -10,6 +19,7 @@ export type FilterState = Record<string, { min?: string; max?: string; eq?: stri
 type FieldDef = {
   field: string;
   label: string;
+  icon: LucideIcon;
   modalities: Modality[];
   kind: "range" | "enum";
   unit?: string;
@@ -19,17 +29,18 @@ type FieldDef = {
 // The catalogue of filterable metadata fields, each tagged with the modalities it applies to.
 // The bar only shows a field when at least one of its modalities is active → "type-aware".
 const FIELDS: FieldDef[] = [
-  { field: "duration_s", label: "Duration", unit: "s", modalities: ["audio", "video"], kind: "range" },
-  { field: "width", label: "Width", unit: "px", modalities: ["image", "video"], kind: "range" },
-  { field: "height", label: "Height", unit: "px", modalities: ["image", "video"], kind: "range" },
+  { field: "duration_s", label: "Duration", unit: "s", icon: Clock, modalities: ["audio", "video"], kind: "range" },
+  { field: "width", label: "Width", unit: "px", icon: MoveHorizontal, modalities: ["image", "video"], kind: "range" },
+  { field: "height", label: "Height", unit: "px", icon: MoveVertical, modalities: ["image", "video"], kind: "range" },
   {
     field: "orientation",
     label: "Orientation",
+    icon: RectangleHorizontal,
     modalities: ["image"],
     kind: "enum",
     options: ["landscape", "portrait", "square"],
   },
-  { field: "word_count", label: "Words", modalities: ["text"], kind: "range" },
+  { field: "word_count", label: "Words", icon: Type, modalities: ["text"], kind: "range" },
 ];
 
 function visibleFields(active: Set<Modality>): FieldDef[] {
@@ -70,13 +81,14 @@ export function MetaFilterBar({
 
   return (
     <div>
-      <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Filters
+      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <SlidersHorizontal className="size-3.5" /> Filters
       </div>
       <div className="flex flex-col gap-3">
         {fields.map((f) => (
           <div key={f.field}>
-            <Label className="text-xs">
+            <Label className="flex items-center gap-1.5 text-xs">
+              <f.icon className="size-3.5 text-muted-foreground" />
               {f.label}
               {f.unit ? ` (${f.unit})` : ""}
             </Label>
