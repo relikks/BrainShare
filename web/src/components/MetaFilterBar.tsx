@@ -1,9 +1,14 @@
 "use client";
 
-import { Input, Label } from "@drekis/shader";
+import {
+  FilterField,
+  toFilterPredicates,
+  visibleFilterFields,
+  type FilterBarState,
+  type FilterFieldDef,
+} from "@drekis/shader";
 import {
   Clock,
-  type LucideIcon,
   MoveHorizontal,
   MoveVertical,
   RectangleHorizontal,
@@ -13,57 +18,40 @@ import {
 
 import type { MetaFilter, Modality } from "@/lib/types";
 
-/** Per-field UI state: a numeric range (min/max → gte/lte) or a single enum pick (→ eq). */
-export type FilterState = Record<string, { min?: string; max?: string; eq?: string }>;
+/** Per-field UI state — shader's FilterBarState, re-exported for existing call sites. */
+export type FilterState = FilterBarState;
 
-type FieldDef = {
-  field: string;
-  label: string;
-  icon: LucideIcon;
-  modalities: Modality[];
-  kind: "range" | "enum";
-  unit?: string;
-  options?: string[];
-};
+const iconCls = "size-3.5 text-muted-foreground";
 
-// The catalogue of filterable metadata fields, each tagged with the modalities it applies to.
-// The bar only shows a field when at least one of its modalities is active → "type-aware".
-const FIELDS: FieldDef[] = [
-  { field: "duration_s", label: "Duration", unit: "s", icon: Clock, modalities: ["audio", "video"], kind: "range" },
-  { field: "width", label: "Width", unit: "px", icon: MoveHorizontal, modalities: ["image", "video"], kind: "range" },
-  { field: "height", label: "Height", unit: "px", icon: MoveVertical, modalities: ["image", "video"], kind: "range" },
+// BrainShare's filterable-metadata catalogue, declared in shader's shared FilterFieldDef
+// vocabulary. `tags` = the modalities a field applies to → the bar is "type-aware":
+// it only shows a field while one of its modalities is active.
+const FIELDS: FilterFieldDef[] = [
+  { key: "duration_s", label: "Duration", unit: "s", icon: <Clock className={iconCls} />, tags: ["audio", "video"], kind: "range" },
+  { key: "width", label: "Width", unit: "px", icon: <MoveHorizontal className={iconCls} />, tags: ["image", "video"], kind: "range" },
+  { key: "height", label: "Height", unit: "px", icon: <MoveVertical className={iconCls} />, tags: ["image", "video"], kind: "range" },
   {
-    field: "orientation",
+    key: "orientation",
     label: "Orientation",
-    icon: RectangleHorizontal,
-    modalities: ["image"],
+    icon: <RectangleHorizontal className={iconCls} />,
+    tags: ["image"],
     kind: "enum",
-    options: ["landscape", "portrait", "square"],
+    options: [{ value: "landscape" }, { value: "portrait" }, { value: "square" }],
   },
-  { field: "word_count", label: "Words", icon: Type, modalities: ["text"], kind: "range" },
+  { key: "word_count", label: "Words", icon: <Type className={iconCls} />, tags: ["text"], kind: "range" },
 ];
-
-function visibleFields(active: Set<Modality>): FieldDef[] {
-  return FIELDS.filter((f) => f.modalities.some((m) => active.has(m)));
-}
 
 /** Derive the backend MetaFilter[] from the UI state — only for fields visible under `active`. */
 export function toMetaFilters(state: FilterState, active: Set<Modality>): MetaFilter[] {
-  const out: MetaFilter[] = [];
-  for (const f of visibleFields(active)) {
-    const s = state[f.field];
-    if (!s) continue;
-    if (f.kind === "enum") {
-      if (s.eq) out.push({ field: f.field, op: "eq", value: s.eq });
-    } else {
-      if (s.min !== undefined && s.min !== "") out.push({ field: f.field, op: "gte", value: Number(s.min) });
-      if (s.max !== undefined && s.max !== "") out.push({ field: f.field, op: "lte", value: Number(s.max) });
-    }
-  }
-  return out;
+  return toFilterPredicates(FIELDS, state, active).map((p) => ({
+    field: p.field,
+    op: p.op,
+    value: p.value,
+  }));
 }
 
-/** Dynamic, type-aware metadata filter section. Controlled by the parent. */
+/** Dynamic, type-aware metadata filter section. Controlled by the parent — a thin
+ *  adapter over shader's FilterField (the control rendering lives in the library). */
 export function MetaFilterBar({
   active,
   value,
@@ -73,11 +61,8 @@ export function MetaFilterBar({
   value: FilterState;
   onChange: (next: FilterState) => void;
 }) {
-  const fields = visibleFields(active);
+  const fields = visibleFilterFields(FIELDS, active);
   if (!fields.length) return null;
-
-  const patch = (field: string, part: { min?: string; max?: string; eq?: string }) =>
-    onChange({ ...value, [field]: { ...value[field], ...part } });
 
   return (
     <div>
@@ -86,54 +71,7 @@ export function MetaFilterBar({
       </div>
       <div className="flex flex-col gap-3">
         {fields.map((f) => (
-          <div key={f.field}>
-            <Label className="flex items-center gap-1.5 text-xs">
-              <f.icon className="size-3.5 text-muted-foreground" />
-              {f.label}
-              {f.unit ? ` (${f.unit})` : ""}
-            </Label>
-            {f.kind === "range" ? (
-              <div className="mt-1 flex items-center gap-1.5">
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  placeholder="min"
-                  className="h-8"
-                  value={value[f.field]?.min ?? ""}
-                  onChange={(e) => patch(f.field, { min: e.target.value })}
-                />
-                <span className="text-muted-foreground">–</span>
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  placeholder="max"
-                  className="h-8"
-                  value={value[f.field]?.max ?? ""}
-                  onChange={(e) => patch(f.field, { max: e.target.value })}
-                />
-              </div>
-            ) : (
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {f.options!.map((o) => {
-                  const on = value[f.field]?.eq === o;
-                  return (
-                    <button
-                      key={o}
-                      type="button"
-                      onClick={() => patch(f.field, { eq: on ? undefined : o })}
-                      className={`rounded-md border px-2 py-1 text-xs capitalize transition-colors ${
-                        on
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border text-muted-foreground hover:bg-muted"
-                      }`}
-                    >
-                      {o}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <FilterField key={f.key} def={f} state={value} onChange={onChange} />
         ))}
       </div>
     </div>

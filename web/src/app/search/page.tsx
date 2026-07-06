@@ -7,6 +7,7 @@ import {
   CardContent,
   Checkbox,
   EmptyState,
+  FilterChipToggle,
   cn,
   toast,
   useHideOnScroll,
@@ -100,24 +101,16 @@ function Filters({
                 {/* pipeline sub-filters: how to look inside this type */}
                 {active && options.length > 1 && (
                   <div className="ml-6 mt-1.5 flex flex-wrap gap-1.5">
-                    {options.map((p) => {
-                      const on = pipes.has(p.key);
-                      return (
-                        <button
-                          key={p.key}
-                          type="button"
-                          title={p.desc}
-                          onClick={() => togglePipe(p.key)}
-                          className={`rounded-md border px-2 py-1 text-xs transition-colors ${
-                            on
-                              ? "border-primary bg-primary/10 text-primary"
-                              : "border-border text-muted-foreground hover:bg-muted"
-                          }`}
-                        >
-                          {p.label}
-                        </button>
-                      );
-                    })}
+                    {options.map((p) => (
+                      <FilterChipToggle
+                        key={p.key}
+                        active={pipes.has(p.key)}
+                        onToggle={() => togglePipe(p.key)}
+                        title={p.desc}
+                      >
+                        {p.label}
+                      </FilterChipToggle>
+                    ))}
                   </div>
                 )}
               </div>
