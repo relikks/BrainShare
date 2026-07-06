@@ -10,6 +10,7 @@ import type {
   MetaFilter,
   Modality,
   ModuleInfo,
+  PipelineInfo,
   Role,
   SearchResults,
   UserOut,
@@ -114,6 +115,7 @@ export async function fileBlobUrl(id: string): Promise<string> {
 // ── search ──
 export interface SearchOpts {
   modalities?: Modality[];
+  pipelines?: string[]; // named search pipelines; omit = every pipeline of the modalities
   collection_ids?: string[] | null;
   directory_id?: string | null;
   include_subdirs?: boolean;
@@ -127,6 +129,9 @@ export const search = (query: string, opts: SearchOpts = {}) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query, ...opts }),
   });
+
+// The static search-pipeline catalog (drives the filter bar's per-type sub-filters).
+export const getPipelines = () => req<{ pipelines: PipelineInfo[] }>("/pipelines");
 
 // ── per-collection AI modules ──
 export const getModules = (collectionId: string) =>

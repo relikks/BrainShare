@@ -60,6 +60,7 @@ export interface MemberOut {
 }
 export interface Segment {
   space: string;
+  pipeline?: string | null; // which search pipeline produced this segment's score
   score: number;
   text: string | null;
   segment: string | null;
@@ -76,6 +77,7 @@ export interface SearchHit {
   score: number;
   best: Segment;
   matched_spaces: string[];
+  matched_pipelines?: string[];
 }
 export interface SearchResults {
   hits: SearchHit[];
@@ -90,4 +92,14 @@ export interface ModuleInfo {
   desc: string;
   modalities: string[];
   enabled: boolean;
+}
+
+// A named search pipeline (mirrors the backend PipelineInfo) — one way of
+// searching one file type (image by objects, audio by transcript, …).
+export interface PipelineInfo {
+  key: string;
+  label: string;
+  desc: string;
+  modality: Modality;
+  module: string | null;
 }

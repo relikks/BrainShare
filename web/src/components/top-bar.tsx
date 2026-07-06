@@ -82,7 +82,13 @@ export function TopBar() {
         <Search className="absolute left-3 size-4 text-muted-foreground" />
         <Input
           ref={inputRef}
-          placeholder="Search your knowledge…"
+          placeholder={
+            pathname.startsWith("/c/")
+              ? sp.get("dir")
+                ? "Search in this folder…"
+                : "Search in this collection…"
+              : "Search your knowledge…"
+          }
           className="h-10 w-full pl-9 pr-16 text-sm"
           value={term}
           onChange={(e) => setTerm(e.target.value)}
