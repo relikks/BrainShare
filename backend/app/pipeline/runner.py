@@ -170,7 +170,10 @@ async def _embed(session, f: File) -> None:
             desc = (await emb.describe_image([data]))[0]
             caption = (desc.get("caption") or "").strip()
             tags = [t for t in (desc.get("tags") or []) if t]
-            doc = ". ".join(x for x in (caption, ", ".join(tags)) if x)
+            # Caption already ends in a period → strip it before the ". " join so the
+            # doc reads "caption. tag1, tag2" (not "caption.. tag1").
+            parts = [caption.rstrip(". "), ", ".join(tags)]
+            doc = ". ".join(x for x in parts if x)
             if not doc:
                 return
             f.meta = {**f.meta, "caption": caption, "tags": tags}

@@ -52,6 +52,12 @@ const ICON: Record<Modality, typeof FileText> = {
   video: Video,
 };
 
+// The objects doc joined a period-ending caption with ". " + tags → a stray "..".
+// Collapse it for display (fixes already-embedded docs without a reindex).
+function cleanSegment(text: string): string {
+  return text.replace(/\.\s*\.\s+/g, ". ");
+}
+
 /** The "Search by" tree: one boolean field per file type; nested behind its
  *  ExpandToggle (with the guide line) go that type's search pipelines and its
  *  metadata filters. Everything UNchecked is the default and means everything —
@@ -207,15 +213,19 @@ function HitThumb({ id, name, onClick }: { id: string; name: string; onClick: ()
       if (obj) URL.revokeObjectURL(obj);
     };
   }, [id]);
-  if (!url) return <div className="h-32 w-44 shrink-0 animate-pulse rounded-xl bg-muted/40 sm:h-36 sm:w-52" />;
+  // Fixed box; the image sits inside at its true aspect ratio (object-contain, no crop).
+  const box = "flex h-32 w-44 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted/30 sm:h-36 sm:w-52";
+  if (!url) return <div className={cn(box, "animate-pulse")} />;
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={url}
-      alt={name}
-      onClick={onClick}
-      className="h-32 w-44 shrink-0 cursor-zoom-in rounded-xl object-cover transition-opacity hover:opacity-90 sm:h-36 sm:w-52"
-    />
+    <div className={box}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={url}
+        alt={name}
+        onClick={onClick}
+        className="max-h-full max-w-full cursor-zoom-in object-contain transition-opacity hover:opacity-90"
+      />
+    </div>
   );
 }
 
@@ -385,11 +395,10 @@ function SearchView() {
                 pathname: `/c/${h.collection_id}`,
                 query: h.directory_id ? { dir: h.directory_id } : undefined,
               };
+              const pct = Math.round(Math.max(0, Math.min(1, h.score)) * 100);
               return (
-                <div
-                  key={h.file_id}
-                  className="flex gap-4 rounded-xl px-1 py-1.5 transition-colors hover:bg-muted/30"
-                >
+                <div key={h.file_id} className="rounded-xl px-1 py-1.5 transition-colors hover:bg-muted/30">
+                 <div className="flex gap-4">
                   {/* media/type block at the side: the photo (or a big type icon)
                       IS the card's visual division — no border, page background */}
                   {h.modality === "image" ? (
@@ -461,7 +470,7 @@ function SearchView() {
                           !isOpen && "line-clamp-3",
                         )}
                       >
-                        {h.best.text}
+                        {cleanSegment(h.best.text)}
                       </p>
                     )}
                     {via.length > 0 && (
@@ -470,6 +479,14 @@ function SearchView() {
                       </div>
                     )}
                   </div>
+                 </div>
+                 {/* match-strength separator: bar filled to the score %, platform color */}
+                 <div
+                   className="mt-2 h-1 overflow-hidden rounded-full bg-muted"
+                   title={`${pct}% match`}
+                 >
+                   <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${pct}%` }} />
+                 </div>
                 </div>
               );
             })}
