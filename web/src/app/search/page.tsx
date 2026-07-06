@@ -6,11 +6,13 @@ import {
   Checkbox,
   EmptyState,
   FilterField,
+  ScopePicker,
   cn,
   toast,
   useHideOnScroll,
   type FilterBarState,
   type FilterFieldDef,
+  type ScopeOption,
 } from "@drekis/shader";
 import {
   ChevronDown,
@@ -20,6 +22,7 @@ import {
   FolderOpen,
   Image as ImageIcon,
   Layers,
+  Library,
   Music,
   Sparkles,
   Video,
@@ -30,10 +33,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { FilePreviewDialog } from "@/components/FileViewer";
 import { metaFieldsFor, toMetaFilters } from "@/components/MetaFilterBar";
-import { browse, fileBlobUrl, getFile, getPipelines, search } from "@/lib/api";
+import { browse, fileBlobUrl, getFile, getPipelines, listCollections, search } from "@/lib/api";
 import { getUuid } from "@/lib/config";
 import {
   MODALITIES,
+  type Collection,
   type Crumb,
   type FileItem,
   type Modality,
@@ -81,6 +85,9 @@ function Filters({
   subdirs,
   setSubdirs,
   scoped,
+  collectionOptions,
+  selectedCollections,
+  onCollectionsChange,
 }: {
   typeFields: FilterFieldDef[];
   state: FilterBarState;
@@ -88,6 +95,9 @@ function Filters({
   subdirs: boolean;
   setSubdirs: (v: boolean) => void;
   scoped: boolean;
+  collectionOptions: ScopeOption[];
+  selectedCollections: string[];
+  onCollectionsChange: (ids: string[]) => void;
 }) {
   const hidden = useHideOnScroll(true);
   return (
@@ -97,6 +107,20 @@ function Filters({
         hidden ? "top-0 h-dvh" : "top-14 h-[calc(100dvh-3.5rem)]",
       )}
     >
+      {/* Collection scope — only when not already pinned to a browsed folder. */}
+      {!scoped && collectionOptions.length > 0 && (
+        <ScopePicker
+          options={collectionOptions}
+          selected={selectedCollections}
+          onChange={onCollectionsChange}
+          icon={<Library className="size-4" />}
+          title="Search in"
+          anyLabel="Any collection"
+          modalTitle="Search in collections"
+          searchPlaceholder="Search collections…"
+        />
+      )}
+
       <div>
         <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           <Layers className="size-3.5" /> Search by
@@ -211,8 +235,14 @@ function SearchView() {
   const [filterState, setFilterState] = useState<FilterBarState>({});
   const [preview, setPreview] = useState<FileItem | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [scopeCids, setScopeCids] = useState<string[]>([]); // [] = any collection
 
   const typeFields = useMemo(() => buildTypeFields(catalog), [catalog]);
+  const collectionOptions = useMemo<ScopeOption[]>(
+    () => collections.map((c) => ({ id: c.id, label: c.name })),
+    [collections],
+  );
 
   // Empty-means-all: unchecked types behave as if every type were checked.
   const checkedMods = MODALITIES.filter((m) => filterState[`type.${m}`]?.on);
@@ -229,7 +259,14 @@ function SearchView() {
     getPipelines()
       .then((r) => setCatalog(r.pipelines))
       .catch(() => setCatalog([]));
+    listCollections()
+      .then(setCollections)
+      .catch(() => setCollections([]));
   }, []);
+
+  // What the search scopes to: a browsed folder's collection wins; otherwise the
+  // ScopePicker selection ([] = every accessible collection).
+  const searchCollectionIds = cid ? [cid] : scopeCids.length ? scopeCids : null;
 
   // Resolve the scope's names (collection + folder path) for the scope row.
   useEffect(() => {
@@ -270,7 +307,7 @@ function SearchView() {
     search(q.trim(), {
       modalities: [...mods],
       pipelines: effectivePipes,
-      collection_ids: cid ? [cid] : null,
+      collection_ids: searchCollectionIds,
       directory_id: dir,
       include_subdirs: subdirs,
       filters: metaFilters,
@@ -282,7 +319,7 @@ function SearchView() {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, cid, dir, subdirs, [...mods].sort().join(","), (effectivePipes ?? []).join(","), JSON.stringify(metaFilters)]);
+  }, [q, cid, dir, subdirs, (searchCollectionIds ?? []).join(","), [...mods].sort().join(","), (effectivePipes ?? []).join(","), JSON.stringify(metaFilters)]);
 
   function clearScope() {
     const params = new URLSearchParams();
@@ -313,6 +350,9 @@ function SearchView() {
         subdirs={subdirs}
         setSubdirs={setSubdirs}
         scoped={!!dir}
+        collectionOptions={collectionOptions}
+        selectedCollections={scopeCids}
+        onCollectionsChange={setScopeCids}
       />
 
       <div className="min-w-0 flex-1 px-5 py-5">

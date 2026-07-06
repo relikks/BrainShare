@@ -7,12 +7,12 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  Input,
+  SearchBar,
   SidebarTrigger,
   cn,
   useHideOnScroll,
 } from "@drekis/shader";
-import { ChevronDown, Moon, Search, Sun, User, X } from "lucide-react";
+import { ChevronDown, Moon, Sun, User } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -44,18 +44,6 @@ export function TopBar() {
     localStorage.setItem("brainshare.theme", next ? "dark" : "light");
   }
 
-  // ⌘K / Ctrl+K focuses search
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        inputRef.current?.focus();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
   function submit() {
     const v = term.trim();
     // carry the current scope: collection from a /c/<id> path, dir from ?dir
@@ -78,36 +66,21 @@ export function TopBar() {
     >
       <SidebarTrigger />
 
-      <div className="relative flex h-10 max-w-2xl flex-1 items-center">
-        <Search className="absolute left-3 size-4 text-muted-foreground" />
-        <Input
-          ref={inputRef}
-          placeholder={
-            pathname.startsWith("/c/")
-              ? sp.get("dir")
-                ? "Search in this folder…"
-                : "Search in this collection…"
-              : "Search your knowledge…"
-          }
-          className="h-10 w-full pl-9 pr-16 text-sm"
-          value={term}
-          onChange={(e) => setTerm(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-        />
-        {term ? (
-          <button
-            type="button"
-            aria-label="Clear"
-            onClick={() => setTerm("")}
-            className="absolute right-2 inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden"
-          >
-            <X className="size-4" />
-          </button>
-        ) : null}
-        <kbd className="pointer-events-none absolute right-3 hidden h-5 select-none items-center gap-1 rounded border border-border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground lg:inline-flex">
-          <span>⌘</span>K
-        </kbd>
-      </div>
+      <SearchBar
+        ref={inputRef}
+        size="md"
+        containerClassName="max-w-2xl flex-1"
+        placeholder={
+          pathname.startsWith("/c/")
+            ? sp.get("dir")
+              ? "Search in this folder…"
+              : "Search in this collection…"
+            : "Search your knowledge…"
+        }
+        value={term}
+        onValueChange={setTerm}
+        onSubmit={submit}
+      />
 
       <div className="ms-auto flex items-center gap-1">
         <Button variant="ghost" size="sm" className="size-9 p-0" onClick={toggleTheme}>
