@@ -102,7 +102,14 @@ async def process_file(file_id: str) -> None:
             return
         try:
             await _embed(session, f)
-            f.status, f.error = FileStatus.ready, None
+            failed = [k for k, v in (f.index_status or {}).items() if v == "failed"]
+            ready = [k for k, v in (f.index_status or {}).items() if v == "ready"]
+            # A file is ready if anything indexed; failed only when every attempted step failed.
+            if failed and not ready:
+                f.status, f.error = FileStatus.failed, f"{', '.join(failed)} failed"
+            else:
+                f.status = FileStatus.ready
+                f.error = f"partial: {', '.join(failed)} failed" if failed else None
         except Exception as exc:  # noqa: BLE001 — surface failure on the file row
             log.exception("embedding failed for file %s", file_id)
             f.status, f.error = FileStatus.failed, str(exc)[:500]
@@ -136,32 +143,78 @@ async def _embed(session, f: File) -> None:
     emb = get_embedder()
     await vector_store.delete_file(f.id)  # idempotent re-embed (edit path)
 
-    # Each step is gated on the collection's enabled modules (defaults in app/modules.py).
-    # Text is always indexed; the rest are opt-out per collection.
+    # Each ingest step feeds exactly one search pipeline (embedding.registry.PIPELINES)
+    # and is gated on the collection's enabled modules (defaults in app/modules.py).
+    # Steps are isolated: one failing never takes down the rest (partial index > none),
+    # and each records its state in File.index_status so search can gate on it.
+    status: dict[str, str] = {}
+
+    async def step(pipeline: str, module: str | None, fn) -> None:
+        if module is not None and not module_on(coll, module):
+            status[pipeline] = "off"
+            return
+        try:
+            await fn()
+            status[pipeline] = "ready"
+        except Exception:  # noqa: BLE001 — isolated; file-level status derived by caller
+            log.exception("ingest step %s failed for file %s", pipeline, f.id)
+            status[pipeline] = "failed"
+
     if f.modality is Modality.text:
-        await _embed_transcript_or_text(emb, base, text_decoded)
+        await step("text.semantic", None, lambda: _embed_transcript_or_text(emb, base, text_decoded))
 
     elif f.modality is Modality.image:
-        if module_on(coll, "image"):
+        # Objects first: its caption/tags land in File.meta before the visual point is
+        # stamped, so every point's payload carries them (filters + explainability).
+        async def _objects() -> None:
+            desc = (await emb.describe_image([data]))[0]
+            caption = (desc.get("caption") or "").strip()
+            tags = [t for t in (desc.get("tags") or []) if t]
+            doc = ". ".join(x for x in (caption, ", ".join(tags)) if x)
+            if not doc:
+                return
+            f.meta = {**f.meta, "caption": caption, "tags": tags}
+            base["meta"] = f.meta
+            vec = (await emb.embed_text([doc]))[0]
+            await vector_store.upsert(
+                "image_objects", [_point(vec, base, segment="objects", text=doc)]
+            )
+
+        async def _visual() -> None:
             vec = (await emb.embed_image([data]))[0]
             await vector_store.upsert("image", [_point(vec, base, segment="image", text=f.name)])
 
+        await step("image.objects", "objects", _objects)
+        await step("image.description", "image", _visual)
+
     elif f.modality is Modality.audio:
-        if module_on(coll, "audio"):
+        async def _sound() -> None:
             avec = (await emb.embed_audio([data]))[0]
             await vector_store.upsert("audio", [_point(avec, base, segment="audio", text=f.name)])
-        if module_on(coll, "transcription"):
+
+        async def _transcript() -> None:
             await _embed_transcript_or_text(emb, base, await emb.transcribe(data), label="transcript")
 
+        await step("audio.sound", "audio", _sound)
+        await step("audio.transcript", "transcription", _transcript)
+
     elif f.modality is Modality.video:
-        if module_on(coll, "video"):
+        async def _visual() -> None:
             vvec = (await emb.embed_video([data]))[0]
             await vector_store.upsert("video", [_point(vvec, base, segment="video", text=f.name)])
-        if module_on(coll, "audio"):
+
+        async def _soundtrack() -> None:
             avec = (await emb.embed_audio([data]))[0]
             await vector_store.upsert("audio", [_point(avec, base, segment="audio-track", text=f.name)])
-        if module_on(coll, "transcription"):
+
+        async def _transcript() -> None:
             await _embed_transcript_or_text(emb, base, await emb.transcribe(data), label="transcript")
+
+        await step("video.visual", "video", _visual)
+        await step("video.soundtrack", "audio", _soundtrack)
+        await step("video.transcript", "transcription", _transcript)
+
+    f.index_status = status  # assignment (not mutation) so the JSON column is flagged dirty
 
 
 async def _embed_transcript_or_text(emb, base: dict, text: str, label: str = "chunk") -> None:

@@ -18,6 +18,7 @@ from typing import Any, Iterable, Sequence
 from qdrant_client import QdrantClient, models
 
 from .config import settings
+from .embedding.registry import SPACES
 from .models import Modality
 
 _client: QdrantClient | None = None
@@ -175,7 +176,7 @@ async def delete_file(file_id: str) -> None:
     def _do() -> None:
         client = _get_client()
         names = {c.name for c in client.get_collections().collections}
-        for space in ("text", "image", "audio", "video"):
+        for space in SPACES:
             if _coll(space) in names:
                 client.delete(
                     collection_name=_coll(space),
@@ -199,7 +200,7 @@ async def restamp_location(
     def _do() -> None:
         client = _get_client()
         names = {c.name for c in client.get_collections().collections}
-        for space in ("text", "image", "audio", "video"):
+        for space in SPACES:
             if _coll(space) in names:
                 client.set_payload(
                     collection_name=_coll(space),

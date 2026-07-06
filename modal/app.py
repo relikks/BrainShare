@@ -23,6 +23,7 @@ IMAGE_MODEL = "google/siglip2-so400m-patch14-384"  # SO400M — near image-retri
 AUDIO_MODEL = "laion/clap-htsat-unfused"  # WavLink target once weights are public
 VIDEO_MODEL = "microsoft/xclip-base-patch32"
 WHISPER_MODEL = "base"  # faster-whisper size for transcripts
+TAGGER_MODEL = "microsoft/Florence-2-large"  # caption + object tags (objects pipeline)
 
 app = modal.App("brainshare-embed")
 
@@ -46,6 +47,8 @@ image = (
         "nvidia-cudnn-cu12",
         "hf-transfer",
         "numpy",
+        "einops",  # Florence-2 remote code
+        "timm",  # Florence-2 vision tower
     )
     .env(_env)
 )
@@ -225,3 +228,71 @@ class VideoEmbedder:
                 inputs = self.proc(videos=videos, return_tensors="pt").to("cuda")
                 feats = self.model.get_video_features(**inputs)
             return _l2norm(feats).cpu().tolist()
+
+
+# ── Image tagger: Florence-2 (caption + object tags → the objects pipeline) ───
+# Own image: Florence-2's remote code breaks on transformers ≥4.52 (missing
+# forced_bos_token_id) — pin 4.51.3 here without touching the other embedders.
+tagger_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .pip_install(
+        "torch",
+        "transformers==4.51.3",
+        "pillow",
+        "einops",
+        "timm",
+        "hf-transfer",
+        "numpy",
+    )
+    .env(_env)
+)
+
+
+@app.cls(gpu="T4", image=tagger_image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=300, min_containers=0)
+class ImageTagger:
+    @modal.enter(snap=True)
+    def load(self):
+        import torch
+        from transformers import AutoModelForCausalLM, AutoProcessor
+
+        self.torch = torch
+        self.proc = AutoProcessor.from_pretrained(TAGGER_MODEL, trust_remote_code=True)
+        self.model = (
+            AutoModelForCausalLM.from_pretrained(
+                TAGGER_MODEL, torch_dtype=torch.float16, trust_remote_code=True
+            )
+            .to("cuda")
+            .eval()
+        )
+
+    def _run(self, img, task: str) -> dict:
+        inputs = self.proc(text=task, images=img, return_tensors="pt")
+        inputs = {
+            k: v.to("cuda", self.torch.float16) if v.dtype.is_floating_point else v.to("cuda")
+            for k, v in inputs.items()
+        }
+        with self.torch.no_grad():
+            ids = self.model.generate(
+                input_ids=inputs["input_ids"],
+                pixel_values=inputs["pixel_values"],
+                max_new_tokens=256,
+                num_beams=3,
+                do_sample=False,
+            )
+        text = self.proc.batch_decode(ids, skip_special_tokens=False)[0]
+        return self.proc.post_process_generation(text, task=task, image_size=(img.width, img.height))
+
+    @modal.method()
+    def describe(self, images: list[bytes]) -> list[dict]:
+        """[{caption, tags}] — a detailed caption plus deduped object labels per image."""
+        from PIL import Image
+
+        out = []
+        for b in images:
+            img = Image.open(io.BytesIO(b)).convert("RGB")
+            caption = (self._run(img, "<MORE_DETAILED_CAPTION>").get("<MORE_DETAILED_CAPTION>") or "").strip()
+            od = self._run(img, "<OD>").get("<OD>") or {}
+            labels = od.get("labels") or []
+            tags = sorted({label.strip().lower() for label in labels if label and label.strip()})
+            out.append({"caption": caption, "tags": tags})
+        return out

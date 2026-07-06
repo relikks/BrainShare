@@ -1,24 +1,53 @@
-"""Multi-modal semantic search.
+"""Multi-modal, pipeline-scoped semantic search.
 
-A query is embedded into each space implied by the selected modalities, every
-space is searched (scoped to accessible collections and, optionally, a directory
-subtree), and hits are merged by file (max score across the file's vectors).
+A query runs through *pipelines* (embedding.registry.PIPELINES) — named ways of
+searching one file type (image by description, audio by transcript, …). The
+caller either names pipelines explicitly or just picks modalities (legacy:
+every pipeline of those types). Pipelines sharing a query tower are encoded
+once; each pipeline searches its space scoped to accessible collections and,
+optionally, a directory subtree. Hits merge by file: the displayed score is the
+best cosine, but with several pipelines the *ordering* is RRF-fused — rank-based,
+so heterogeneous model score scales can't skew the blend.
 """
 
 from fastapi import APIRouter, HTTPException
 
 from ..auth import CurrentUser
 from ..db import SessionDep
-from ..dto import Crumb, SearchHit, SearchQuery, SearchResults, Segment
-from ..embedding import get_embedder, spaces_for_modalities
+from ..dto import Crumb, PipelineInfo, PipelinesOut, SearchHit, SearchQuery, SearchResults, Segment
+from ..embedding import PIPELINES, Pipeline, get_embedder, pipelines_for_modalities
 from ..models import Modality
 from ..services import directories as dir_svc
-from ..services.permissions import accessible_collection_ids, require_member
+from ..services.permissions import accessible_collection_ids
 from .. import vector_store
 
 router = APIRouter(tags=["search"])
 
 OVERSAMPLE = 4  # pull extra per space so merge-by-file has material
+RRF_K = 60  # standard reciprocal-rank-fusion damping
+
+
+@router.get("/pipelines", response_model=PipelinesOut)
+async def list_pipelines(user: CurrentUser) -> PipelinesOut:
+    """The static search-pipeline catalog (the filter bar builds itself from this)."""
+    return PipelinesOut(
+        pipelines=[
+            PipelineInfo(
+                key=p.key, label=p.label, desc=p.desc, modality=str(p.modality), module=p.module
+            )
+            for p in PIPELINES.values()
+        ]
+    )
+
+
+def _resolve_pipelines(payload: SearchQuery) -> list[Pipeline]:
+    """Explicit pipeline keys win; otherwise every pipeline of the selected modalities."""
+    if payload.pipelines:
+        unknown = [k for k in payload.pipelines if k not in PIPELINES]
+        if unknown:
+            raise HTTPException(422, f"Unknown pipelines: {', '.join(unknown)}")
+        return [PIPELINES[k] for k in dict.fromkeys(payload.pipelines)]
+    return pipelines_for_modalities(payload.modalities)
 
 
 def _crumbs(collection_name: str, dir_path: str) -> list[Crumb]:
@@ -59,24 +88,35 @@ async def search(payload: SearchQuery, user: CurrentUser, session: SessionDep) -
     if not cids:
         return SearchResults(hits=[])
 
+    pipelines = _resolve_pipelines(payload)
+    if not pipelines:
+        return SearchResults(hits=[])
+
     embedder = get_embedder()
-    spaces = spaces_for_modalities(payload.modalities)
     raw_limit = payload.top_k * OVERSAMPLE
 
-    # file_id -> aggregate
+    # Encode the query once per tower — transcript/objects/text share Qwen3, so
+    # selecting all three still costs a single Modal call.
+    qvecs: dict[str, list[float]] = {}
+    for qs in dict.fromkeys(p.query_space for p in pipelines):
+        qvecs[qs] = await embedder.query_vector(qs, payload.query)
+
+    # file_id -> aggregate. `rrf` accumulates 1/(K+rank) per pipeline; `score`
+    # keeps the best raw cosine for display and the min_score floor.
     best: dict[str, dict] = {}
-    for space in spaces:
-        qvec = await embedder.query_vector(space, payload.query)
+    for pipe in pipelines:
         points = await vector_store.search(
-            space,
-            qvec,
+            pipe.space,
+            qvecs[pipe.query_space],
             top_k=raw_limit,
             collection_ids=cids,
-            modalities=payload.modalities,
+            modalities=[pipe.modality],
             ancestor_dir_id=ancestor_dir_id,
             directory_id=directory_id,
             meta_filters=payload.filters,
         )
+        rank = 0  # per-file rank within this pipeline (points may repeat a file)
+        seen_files: set[str] = set()
         for p in points:
             pl = p.payload or {}
             fid = pl.get("file_id")
@@ -85,14 +125,27 @@ async def search(payload: SearchQuery, user: CurrentUser, session: SessionDep) -
             score = float(p.score)
             entry = best.get(fid)
             if entry is None:
-                entry = {"score": -1.0, "spaces": set(), "best": None, "payload": pl}
+                entry = {
+                    "score": -1.0,
+                    "rrf": 0.0,
+                    "spaces": set(),
+                    "pipelines": set(),
+                    "best": None,
+                    "payload": pl,
+                }
                 best[fid] = entry
-            entry["spaces"].add(space)
+            entry["spaces"].add(pipe.space)
+            entry["pipelines"].add(pipe.key)
+            if fid not in seen_files:  # RRF counts a file once per pipeline
+                seen_files.add(fid)
+                entry["rrf"] += 1.0 / (RRF_K + rank)
+                rank += 1
             if score > entry["score"]:
                 entry["score"] = score
                 entry["payload"] = pl
                 entry["best"] = Segment(
-                    space=space,
+                    space=pipe.space,
+                    pipeline=pipe.key,
                     score=score,
                     text=pl.get("text"),
                     segment=pl.get("segment"),
@@ -114,9 +167,19 @@ async def search(payload: SearchQuery, user: CurrentUser, session: SessionDep) -
                 score=e["score"],
                 best=e["best"],
                 matched_spaces=sorted(e["spaces"]),
+                matched_pipelines=sorted(e["pipelines"]),
             )
         )
     if payload.min_score > 0:
         hits = [h for h in hits if h.score >= payload.min_score]
-    hits.sort(key=lambda h: h.score, reverse=True)
+
+    if payload.pipelines and len(pipelines) > 1:
+        # Explicit multi-pipeline blend: rank-fused order (score scales aren't
+        # comparable across models). Legacy modality queries keep best-cosine order —
+        # the corpus battery is tuned to it, and text scores dominating there is the
+        # behaviour callers already rely on.
+        rrf_of = {fid: e["rrf"] for fid, e in best.items()}
+        hits.sort(key=lambda h: (rrf_of.get(h.file_id, 0.0), h.score), reverse=True)
+    else:
+        hits.sort(key=lambda h: h.score, reverse=True)
     return SearchResults(hits=hits[: payload.top_k])

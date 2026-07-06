@@ -64,6 +64,7 @@ class FileOut(_FromAttrs):
     status: FileStatus
     error: str | None = None
     meta: dict = {}  # §1 per-type metadata (image dims, video/audio duration, text word_count…)
+    index_status: dict = {}  # pipeline key → "ready" | "failed" | "off" (search-pipeline gating)
     created_at: datetime
 
 
@@ -93,6 +94,10 @@ class MetaFilter(BaseModel):
 class SearchQuery(BaseModel):
     query: str = Field(min_length=1)
     modalities: list[Modality] = Field(default_factory=lambda: list(Modality))
+    # Named search pipelines (embedding.registry.PIPELINES keys). None/empty = every
+    # pipeline of the selected modalities (legacy behaviour). Naming them narrows the
+    # search to exactly those ways of looking — e.g. ["audio.transcript"].
+    pipelines: list[str] | None = None
     collection_ids: list[str] | None = None  # None = all accessible
     directory_id: str | None = None  # scope to a folder…
     include_subdirs: bool = True  # …and everything under it
@@ -103,6 +108,7 @@ class SearchQuery(BaseModel):
 
 class Segment(BaseModel):
     space: str
+    pipeline: str | None = None  # which pipeline produced this segment's score
     score: float
     text: str | None = None
     segment: str | None = None  # chunk idx / window ts / frame ts label
@@ -117,9 +123,10 @@ class SearchHit(BaseModel):
     directory_id: str | None
     dir_path: str
     breadcrumb: list[Crumb]
-    score: float
+    score: float  # best cosine across pipelines (display); ordering may be RRF-fused
     best: Segment
     matched_spaces: list[str]
+    matched_pipelines: list[str] = Field(default_factory=list)
 
 
 class SearchResults(BaseModel):
@@ -141,3 +148,16 @@ class ModulesOut(BaseModel):
 
 class ModulesUpdate(BaseModel):
     modules: dict[str, bool]  # module name → enabled override
+
+
+# ── Search pipelines (static catalog) ──
+class PipelineInfo(BaseModel):
+    key: str
+    label: str
+    desc: str
+    modality: str
+    module: str | None  # ingest module its index depends on (None = always available)
+
+
+class PipelinesOut(BaseModel):
+    pipelines: list[PipelineInfo]

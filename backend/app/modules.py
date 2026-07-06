@@ -39,6 +39,12 @@ MODULES: dict[str, dict] = {
         "desc": "Transcribe speech in audio/video to searchable text (Whisper).",
         "modalities": ["audio", "video"],
     },
+    "objects": {
+        "default": True,
+        "label": "Object detection",
+        "desc": "Detect objects and caption images (Florence-2) for object-level search.",
+        "modalities": ["image"],
+    },
     "ocr": {
         "default": False,
         "label": "OCR (image → text)",

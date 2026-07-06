@@ -71,5 +71,10 @@ class File(SQLModel, table=True):
     # audio {duration_s,sample_rate,...}; text {word_count,lang}. Also stamped into the Qdrant payload
     # (`meta`) so search can filter on it (MetaFilter → Range/Match).
     meta: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    # Per-pipeline index state (pipeline key → "ready" | "failed" | "off"). Lets the
+    # search UI grey out pipelines with no index, and reindex scripts find files an
+    # added model hasn't processed. NOTE: needs a migration on existing DBs
+    # (create_all won't add the column) — same caveat as `meta`.
+    index_status: dict = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

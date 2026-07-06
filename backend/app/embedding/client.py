@@ -37,6 +37,9 @@ class Embedder(ABC):
     async def embed_video_query(self, texts: list[str]) -> list[Vec]: ...
     @abstractmethod
     async def transcribe(self, clip: bytes) -> str: ...
+    @abstractmethod
+    async def describe_image(self, images: list[bytes]) -> list[dict]: ...
+    # describe_image → [{"caption": str, "tags": [str, ...]}] (Florence-2)
 
     async def query_vector(self, space: str, text: str) -> Vec:
         """Embed an NL query into a given space via that space's text tower."""
@@ -94,6 +97,13 @@ class StubEmbedder(Embedder):
     async def transcribe(self, clip: bytes) -> str:
         return ""
 
+    async def describe_image(self, images: list[bytes]) -> list[dict]:
+        # Deterministic: hash-derived pseudo-tags so wiring is testable offline.
+        return [
+            {"caption": f"stub image {hashlib.sha256(b).hexdigest()[:8]}", "tags": ["stub"]}
+            for b in images
+        ]
+
 
 class ModalEmbedder(Embedder):
     """Calls the deployed Modal model classes by name (token in ~/.modal.toml/env)."""
@@ -133,6 +143,9 @@ class ModalEmbedder(Embedder):
 
     async def transcribe(self, clip: bytes) -> str:
         return await self._cls("AudioEmbedder").transcribe.remote.aio(clip)
+
+    async def describe_image(self, images: list[bytes]) -> list[dict]:
+        return await self._cls("ImageTagger").describe.remote.aio(images)
 
 
 @lru_cache(maxsize=1)
