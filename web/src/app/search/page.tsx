@@ -2,6 +2,7 @@
 
 import {
   Badge,
+  Button,
   Card,
   CardContent,
   Checkbox,
@@ -11,8 +12,11 @@ import {
   useHideOnScroll,
 } from "@drekis/shader";
 import {
+  ChevronDown,
+  ChevronUp,
   FileText,
   Folder,
+  FolderOpen,
   Image as ImageIcon,
   Layers,
   Music,
@@ -20,12 +24,21 @@ import {
   Video,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { FilePreviewDialog } from "@/components/FileViewer";
 import { MetaFilterBar, toMetaFilters, type FilterState } from "@/components/MetaFilterBar";
-import { browse, getPipelines, search } from "@/lib/api";
+import { browse, fileBlobUrl, getFile, getPipelines, search } from "@/lib/api";
 import { getUuid } from "@/lib/config";
-import { MODALITIES, type Crumb, type Modality, type PipelineInfo, type SearchHit } from "@/lib/types";
+import {
+  MODALITIES,
+  type Crumb,
+  type FileItem,
+  type Modality,
+  type PipelineInfo,
+  type SearchHit,
+} from "@/lib/types";
 
 const ICON: Record<Modality, typeof FileText> = {
   text: FileText,
@@ -170,6 +183,38 @@ function ScopeRow({
   );
 }
 
+/** Inline photo thumbnail on an image hit — auth'd fetch → object URL. Click = full preview. */
+function HitThumb({ id, name, onClick }: { id: string; name: string; onClick: () => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let obj: string | null = null;
+    let cancelled = false;
+    fileBlobUrl(id)
+      .then((u) => {
+        if (cancelled) URL.revokeObjectURL(u);
+        else {
+          obj = u;
+          setUrl(u);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (obj) URL.revokeObjectURL(obj);
+    };
+  }, [id]);
+  if (!url) return <div className="h-36 w-56 animate-pulse rounded-md border border-border bg-muted/40" />;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={url}
+      alt={name}
+      onClick={onClick}
+      className="h-36 w-auto max-w-full cursor-zoom-in rounded-md border border-border object-contain transition-opacity hover:opacity-90"
+    />
+  );
+}
+
 function SearchView() {
   const sp = useSearchParams();
   const router = useRouter();
@@ -184,6 +229,8 @@ function SearchView() {
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [filterState, setFilterState] = useState<FilterState>({});
+  const [preview, setPreview] = useState<FileItem | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const metaFilters = toMetaFilters(filterState, mods);
   const labelOf = useMemo(
     () => Object.fromEntries(catalog.map((p) => [p.key, `${p.modality} · ${p.label.toLowerCase()}`])),
@@ -270,6 +317,20 @@ function SearchView() {
     router.push(`/search?${params.toString()}`);
   }
 
+  function openPreview(fileId: string) {
+    getFile(fileId)
+      .then(setPreview)
+      .catch((e) => toast.error(String((e as Error).message)));
+  }
+
+  function toggleExpand(fileId: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(fileId) ? next.delete(fileId) : next.add(fileId);
+      return next;
+    });
+  }
+
   return (
     <div className="flex w-full">
       <Filters
@@ -310,22 +371,66 @@ function SearchView() {
               const via = h.matched_pipelines?.length
                 ? h.matched_pipelines.map((k) => labelOf[k] ?? k)
                 : h.matched_spaces;
+              const isOpen = expanded.has(h.file_id);
+              const goTo = {
+                pathname: `/c/${h.collection_id}`,
+                query: h.directory_id ? { dir: h.directory_id } : undefined,
+              };
               return (
                 <Card key={h.file_id}>
                   <CardContent className="space-y-1.5 p-4">
                     <div className="flex items-center gap-2">
                       <Icon className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate font-medium">{h.file_name}</span>
+                      <button
+                        type="button"
+                        onClick={() => openPreview(h.file_id)}
+                        className="truncate font-medium transition-colors hover:text-primary"
+                        title="Preview"
+                      >
+                        {h.file_name}
+                      </button>
                       <Badge variant="secondary">{h.modality}</Badge>
                       <span className="ms-auto text-xs text-muted-foreground">
                         {h.score.toFixed(3)}
                       </span>
+                      <Link
+                        href={goTo}
+                        title="Go to folder"
+                        className="flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      >
+                        <FolderOpen className="size-3.5" /> Go to
+                      </Link>
+                      {h.best?.text && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0"
+                          title={isOpen ? "Collapse" : "Expand"}
+                          onClick={() => toggleExpand(h.file_id)}
+                        >
+                          {isOpen ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                        </Button>
+                      )}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {h.breadcrumb.map((c) => c.name).join(" / ")}
                     </div>
+                    {h.modality === "image" && (
+                      <HitThumb
+                        id={h.file_id}
+                        name={h.file_name}
+                        onClick={() => openPreview(h.file_id)}
+                      />
+                    )}
                     {h.best?.text && (
-                      <p className="line-clamp-3 text-sm text-foreground/80">{h.best.text}</p>
+                      <p
+                        className={cn(
+                          "text-sm text-foreground/80",
+                          !isOpen && "line-clamp-3",
+                        )}
+                      >
+                        {h.best.text}
+                      </p>
                     )}
                     {via.length > 0 && (
                       <div className="text-xs text-muted-foreground">
@@ -339,6 +444,8 @@ function SearchView() {
           </div>
         )}
       </div>
+
+      <FilePreviewDialog file={preview} onClose={() => setPreview(null)} />
     </div>
   );
 }

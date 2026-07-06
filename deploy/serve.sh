@@ -5,6 +5,9 @@
 # on every (re)start so a SIGTERM/crash never leaves a stale 404.
 set -u
 ROOT=/workspace/projects/BrainShare
+# tmux sessions don't inherit the container env (the tmux server was spawned bare) —
+# deploy/.env (gitignored) carries what `api deploy` needs, e.g. DEPLOY_API_KEY.
+[ -f "$ROOT/deploy/.env" ] && . "$ROOT/deploy/.env"
 
 run_web() {
   cd "$ROOT/web" || exit 1
