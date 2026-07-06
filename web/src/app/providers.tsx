@@ -14,11 +14,13 @@ import { TopBar } from "@/components/top-bar";
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <TooltipProvider>
+      {/* Collapsed rail by default, CardForge-style — expand via the rail/trigger. */}
       <SidebarProvider
+        defaultOpen={false}
         style={
           {
             "--sidebar-width": "16rem",
-            "--sidebar-width-icon": "3.5rem",
+            "--sidebar-width-icon": "4rem",
           } as CSSProperties
         }
       >
