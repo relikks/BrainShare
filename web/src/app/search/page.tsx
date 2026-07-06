@@ -3,14 +3,14 @@
 import {
   Badge,
   Button,
-  Card,
-  CardContent,
   Checkbox,
   EmptyState,
-  FilterChipToggle,
+  FilterField,
   cn,
   toast,
   useHideOnScroll,
+  type FilterBarState,
+  type FilterFieldDef,
 } from "@drekis/shader";
 import {
   ChevronDown,
@@ -29,7 +29,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { FilePreviewDialog } from "@/components/FileViewer";
-import { MetaFilterBar, toMetaFilters, type FilterState } from "@/components/MetaFilterBar";
+import { metaFieldsFor, toMetaFilters } from "@/components/MetaFilterBar";
 import { browse, fileBlobUrl, getFile, getPipelines, search } from "@/lib/api";
 import { getUuid } from "@/lib/config";
 import {
@@ -48,31 +48,46 @@ const ICON: Record<Modality, typeof FileText> = {
   video: Video,
 };
 
-/** Layer-dependent filter aside — sticky under the top bar, shifts up when it hides.
- * CardForge-style: each active type expands its named search pipelines as sub-filter
- * chips ("not just searching images — searching images by objects"). */
+/** The "Search by" tree: one boolean field per file type; nested behind its
+ *  ExpandToggle (with the guide line) go that type's search pipelines and its
+ *  metadata filters. Everything UNchecked is the default and means everything —
+ *  checking narrows. */
+function buildTypeFields(catalog: PipelineInfo[]): FilterFieldDef[] {
+  return MODALITIES.map((m) => {
+    const Icon = ICON[m];
+    const pipeOptions = catalog
+      .filter((p) => p.modality === m)
+      .map((p) => ({ value: p.key, label: p.label }));
+    return {
+      key: `type.${m}`,
+      label: <span className="capitalize">{m}</span>,
+      icon: <Icon className="size-4 text-muted-foreground" />,
+      kind: "boolean" as const,
+      children: [
+        ...(pipeOptions.length > 1
+          ? [{ key: `pipes.${m}`, label: "Search via", kind: "multi" as const, options: pipeOptions }]
+          : []),
+        ...metaFieldsFor(m),
+      ],
+    };
+  });
+}
+
+/** Layer-dependent filter aside — sticky under the top bar, shifts up when it hides. */
 function Filters({
-  mods,
-  toggle,
-  catalog,
-  pipes,
-  togglePipe,
+  typeFields,
+  state,
+  setState,
   subdirs,
   setSubdirs,
   scoped,
-  filterState,
-  setFilterState,
 }: {
-  mods: Set<Modality>;
-  toggle: (m: Modality) => void;
-  catalog: PipelineInfo[];
-  pipes: Set<string>;
-  togglePipe: (key: string) => void;
+  typeFields: FilterFieldDef[];
+  state: FilterBarState;
+  setState: (s: FilterBarState) => void;
   subdirs: boolean;
   setSubdirs: (v: boolean) => void;
   scoped: boolean;
-  filterState: FilterState;
-  setFilterState: (s: FilterState) => void;
 }) {
   const hidden = useHideOnScroll(true);
   return (
@@ -87,39 +102,11 @@ function Filters({
           <Layers className="size-3.5" /> Search by
         </div>
         <div className="flex flex-col gap-2.5">
-          {MODALITIES.map((m) => {
-            const Icon = ICON[m];
-            const active = mods.has(m);
-            const options = catalog.filter((p) => p.modality === m);
-            return (
-              <div key={m}>
-                <label className="flex cursor-pointer items-center gap-2.5 text-sm">
-                  <Checkbox checked={active} onCheckedChange={() => toggle(m)} />
-                  <Icon className="size-4 text-muted-foreground" />
-                  <span className="capitalize">{m}</span>
-                </label>
-                {/* pipeline sub-filters: how to look inside this type */}
-                {active && options.length > 1 && (
-                  <div className="ml-6 mt-1.5 flex flex-wrap gap-1.5">
-                    {options.map((p) => (
-                      <FilterChipToggle
-                        key={p.key}
-                        active={pipes.has(p.key)}
-                        onToggle={() => togglePipe(p.key)}
-                        title={p.desc}
-                      >
-                        {p.label}
-                      </FilterChipToggle>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {typeFields.map((f) => (
+            <FilterField key={f.key} def={f} state={state} onChange={setState} />
+          ))}
         </div>
       </div>
-
-      <MetaFilterBar active={mods} value={filterState} onChange={setFilterState} />
 
       {scoped && (
         <div>
@@ -176,7 +163,7 @@ function ScopeRow({
   );
 }
 
-/** Inline photo thumbnail on an image hit — auth'd fetch → object URL. Click = full preview. */
+/** Side photo on an image hit — auth'd fetch → object URL. Click = full preview. */
 function HitThumb({ id, name, onClick }: { id: string; name: string; onClick: () => void }) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
@@ -196,14 +183,14 @@ function HitThumb({ id, name, onClick }: { id: string; name: string; onClick: ()
       if (obj) URL.revokeObjectURL(obj);
     };
   }, [id]);
-  if (!url) return <div className="h-36 w-56 animate-pulse rounded-md border border-border bg-muted/40" />;
+  if (!url) return <div className="h-32 w-44 shrink-0 animate-pulse rounded-xl bg-muted/40 sm:h-36 sm:w-52" />;
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={url}
       alt={name}
       onClick={onClick}
-      className="h-36 w-auto max-w-full cursor-zoom-in rounded-md border border-border object-contain transition-opacity hover:opacity-90"
+      className="h-32 w-44 shrink-0 cursor-zoom-in rounded-xl object-cover transition-opacity hover:opacity-90 sm:h-36 sm:w-52"
     />
   );
 }
@@ -214,16 +201,23 @@ function SearchView() {
   const q = sp.get("q") ?? "";
   const cid = sp.get("cid");
   const dir = sp.get("dir");
-  const [mods, setMods] = useState<Set<Modality>>(new Set(MODALITIES));
-  const [pipes, setPipes] = useState<Set<string>>(new Set());
   const [catalog, setCatalog] = useState<PipelineInfo[]>([]);
   const [subdirs, setSubdirs] = useState(true);
   const [scopeCrumbs, setScopeCrumbs] = useState<Crumb[] | null>(null);
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [busy, setBusy] = useState(false);
-  const [filterState, setFilterState] = useState<FilterState>({});
+  // One tree of state for types + pipelines + metadata. Default {} = nothing checked,
+  // which MEANS everything: checking types/pipelines narrows, never gates.
+  const [filterState, setFilterState] = useState<FilterBarState>({});
   const [preview, setPreview] = useState<FileItem | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const typeFields = useMemo(() => buildTypeFields(catalog), [catalog]);
+
+  // Empty-means-all: unchecked types behave as if every type were checked.
+  const checkedMods = MODALITIES.filter((m) => filterState[`type.${m}`]?.on);
+  const mods = new Set<Modality>(checkedMods.length ? checkedMods : MODALITIES);
+
   const metaFilters = toMetaFilters(filterState, mods);
   const labelOf = useMemo(
     () => Object.fromEntries(catalog.map((p) => [p.key, `${p.modality} · ${p.label.toLowerCase()}`])),
@@ -248,37 +242,23 @@ function SearchView() {
       .catch(() => setScopeCrumbs(null));
   }, [cid, dir]);
 
-  function toggle(m: Modality) {
-    setMods((prev) => {
-      const next = new Set(prev);
-      next.has(m) ? next.delete(m) : next.add(m);
-      return next.size ? next : prev;
-    });
-  }
-
-  function togglePipe(key: string) {
-    setPipes((prev) => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
-  }
-
   // Effective pipeline selection: per active type, its chosen chips — or all of its
-  // pipelines when none are chosen. If that equals "everything for these types",
-  // omit the param (the backend's legacy path, battery-tuned ordering).
+  // pipelines when none are chosen (empty-means-all again). If that equals
+  // "everything for these types", omit the param (the backend's legacy path,
+  // battery-tuned ordering).
   const effectivePipes = useMemo(() => {
     if (!catalog.length) return undefined;
     const out: string[] = [];
     let narrowed = false;
     for (const m of mods) {
       const options = catalog.filter((p) => p.modality === m);
-      const chosen = options.filter((p) => pipes.has(p.key));
+      const chosen = options.filter((p) => filterState[`pipes.${m}`]?.in?.includes(p.key));
       if (chosen.length && chosen.length < options.length) narrowed = true;
       for (const p of chosen.length ? chosen : options) out.push(p.key);
     }
     return narrowed ? out : undefined;
-  }, [catalog, mods, pipes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalog, [...mods].sort().join(","), JSON.stringify(filterState)]);
 
   useEffect(() => {
     if (!q.trim() || !getUuid()) {
@@ -327,16 +307,12 @@ function SearchView() {
   return (
     <div className="flex w-full">
       <Filters
-        mods={mods}
-        toggle={toggle}
-        catalog={catalog}
-        pipes={pipes}
-        togglePipe={togglePipe}
+        typeFields={typeFields}
+        state={filterState}
+        setState={setFilterState}
         subdirs={subdirs}
         setSubdirs={setSubdirs}
         scoped={!!dir}
-        filterState={filterState}
-        setFilterState={setFilterState}
       />
 
       <div className="min-w-0 flex-1 px-5 py-5">
@@ -358,7 +334,7 @@ function SearchView() {
         ) : hits === null ? null : hits.length === 0 ? (
           <EmptyState title="No matches" description="Try different words or enable more modalities." />
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {hits.map((h) => {
               const Icon = ICON[h.modality];
               const via = h.matched_pipelines?.length
@@ -370,10 +346,26 @@ function SearchView() {
                 query: h.directory_id ? { dir: h.directory_id } : undefined,
               };
               return (
-                <Card key={h.file_id}>
-                  <CardContent className="space-y-1.5 p-4">
+                <div
+                  key={h.file_id}
+                  className="flex gap-4 rounded-xl px-1 py-1.5 transition-colors hover:bg-muted/30"
+                >
+                  {/* media/type block at the side: the photo (or a big type icon)
+                      IS the card's visual division — no border, page background */}
+                  {h.modality === "image" ? (
+                    <HitThumb
+                      id={h.file_id}
+                      name={h.file_name}
+                      onClick={() => openPreview(h.file_id)}
+                    />
+                  ) : (
+                    <div className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-muted/60">
+                      <Icon className="size-7 text-muted-foreground" />
+                    </div>
+                  )}
+
+                  <div className="min-w-0 flex-1 space-y-1 py-0.5">
                     <div className="flex items-center gap-2">
-                      <Icon className="size-4 shrink-0 text-muted-foreground" />
                       <button
                         type="button"
                         onClick={() => openPreview(h.file_id)}
@@ -405,16 +397,23 @@ function SearchView() {
                         </Button>
                       )}
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      {h.breadcrumb.map((c) => c.name).join(" / ")}
+                    {/* clickable breadcrumb: each level jumps into that folder */}
+                    <div className="truncate text-xs text-muted-foreground">
+                      {h.breadcrumb.map((c, i) => (
+                        <span key={c.id ?? `l${i}`}>
+                          {i > 0 && <span className="mx-1">/</span>}
+                          <Link
+                            href={{
+                              pathname: `/c/${h.collection_id}`,
+                              query: c.id ? { dir: c.id } : undefined,
+                            }}
+                            className="transition-colors hover:text-foreground hover:underline"
+                          >
+                            {c.name}
+                          </Link>
+                        </span>
+                      ))}
                     </div>
-                    {h.modality === "image" && (
-                      <HitThumb
-                        id={h.file_id}
-                        name={h.file_name}
-                        onClick={() => openPreview(h.file_id)}
-                      />
-                    )}
                     {h.best?.text && (
                       <p
                         className={cn(
@@ -430,8 +429,8 @@ function SearchView() {
                         matched via {via.join(", ")}
                       </div>
                     )}
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
               );
             })}
           </div>

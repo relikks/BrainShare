@@ -27,6 +27,7 @@ import {
   FileText,
   Folder,
   FolderPlus,
+  FolderUp,
   Image as ImageIcon,
   Music,
   Trash2,
@@ -61,7 +62,9 @@ function Browser() {
   const [shareRole, setShareRole] = useState<Role>("viewer");
   const [preview, setPreview] = useState<FileItem | null>(null);
   const [modulesOpen, setModulesOpen] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const folderInput = useRef<HTMLInputElement>(null);
 
   const load = () => {
     if (!getUuid()) return;
@@ -83,18 +86,108 @@ function Browser() {
     }
   }
 
+  // Skip OS litter inside folders/zips — it would only pollute the index.
+  const JUNK = /(^|\/)(\.DS_Store|__MACOSX|Thumbs\.db|desktop\.ini)(\/|$)/;
+  const ZIP_EXPAND_LIMIT = 500 * 1024 * 1024; // browser-side unzip cap
+
+  /** Create every folder a batch needs (depth order), rooted at the current dir.
+   *  Returns dirPath → directory_id ("" = here). */
+  async function ensureDirs(paths: Set<string>): Promise<Map<string, string | null>> {
+    const map = new Map<string, string | null>([["", dir]]);
+    const sorted = [...paths].filter(Boolean).sort((a, b) => a.split("/").length - b.split("/").length);
+    for (const p of sorted) {
+      if (map.has(p)) continue;
+      const parent = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+      const d = await createDirectory(id, map.get(parent) ?? dir, p.split("/").pop()!);
+      map.set(p, d.id);
+    }
+    return map;
+  }
+
+  /** Batch upload: recreate the tree, then push files a few at a time. Each upload
+   *  kicks the per-type embedding pipeline server-side, so the whole batch ends up
+   *  vectorized per its file types. */
+  async function uploadEntries(entries: { path: string; file: File }[]) {
+    const clean = entries.filter((e) => !JUNK.test(e.path));
+    if (!clean.length) return;
+    const dirPaths = new Set(
+      clean.map((e) => (e.path.includes("/") ? e.path.slice(0, e.path.lastIndexOf("/")) : "")),
+    );
+    let dirMap: Map<string, string | null>;
+    try {
+      setProgress("Creating folders…");
+      dirMap = await ensureDirs(dirPaths);
+    } catch (e) {
+      setProgress(null);
+      toast.error(`Folders: ${(e as Error).message}`);
+      return;
+    }
+    let done = 0;
+    let failed = 0;
+    const queue = [...clean];
+    const worker = async () => {
+      for (let e = queue.shift(); e; e = queue.shift()) {
+        const parent = e.path.includes("/") ? e.path.slice(0, e.path.lastIndexOf("/")) : "";
+        try {
+          await uploadFile(id, dirMap.get(parent) ?? dir, e.file);
+        } catch {
+          failed++;
+        }
+        done++;
+        setProgress(`Uploading ${done}/${clean.length}…`);
+      }
+    };
+    await Promise.all(Array.from({ length: 3 }, worker));
+    setProgress(null);
+    if (failed) toast.error(`${failed} of ${clean.length} uploads failed`);
+    else toast.success(`Uploaded ${clean.length} file(s) — embedding in background`);
+    load();
+  }
+
+  /** Client-side zip expansion (fflate) → path'd entries, guarded by a size cap. */
+  async function expandZip(f: File): Promise<{ path: string; file: File }[]> {
+    const { unzip } = await import("fflate");
+    const buf = new Uint8Array(await f.arrayBuffer());
+    const contents = await new Promise<Record<string, Uint8Array>>((resolve, reject) =>
+      unzip(buf, (err, data) => (err ? reject(err) : resolve(data))),
+    );
+    const out: { path: string; file: File }[] = [];
+    let total = 0;
+    for (const [path, data] of Object.entries(contents)) {
+      if (path.endsWith("/") || JUNK.test(path)) continue;
+      total += data.length;
+      if (total > ZIP_EXPAND_LIMIT)
+        throw new Error("too large to expand in the browser (>500MB) — upload as a folder instead");
+      out.push({ path, file: new File([data as BlobPart], path.split("/").pop()!) });
+    }
+    return out;
+  }
+
   async function onFiles(files: FileList | null) {
     if (!files?.length) return;
-    toast.message(`Uploading ${files.length} file(s)…`);
-    for (const f of Array.from(files)) {
+    const arr = Array.from(files);
+    const entries: { path: string; file: File }[] = arr
+      .filter((f) => !f.name.toLowerCase().endsWith(".zip"))
+      .map((f) => ({ path: f.name, file: f }));
+    for (const z of arr.filter((f) => f.name.toLowerCase().endsWith(".zip"))) {
       try {
-        await uploadFile(id, dir, f);
+        setProgress(`Expanding ${z.name}…`);
+        entries.push(...(await expandZip(z)));
       } catch (e) {
-        toast.error(`${f.name}: ${(e as Error).message}`);
+        toast.error(`${z.name}: ${(e as Error).message}`);
       }
     }
-    toast.success("Uploaded — embedding in background");
-    load();
+    setProgress(null);
+    await uploadEntries(entries);
+  }
+
+  async function onFolderPicked(files: FileList | null) {
+    if (!files?.length) return;
+    const entries = Array.from(files).map((f) => ({
+      path: (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name,
+      file: f,
+    }));
+    await uploadEntries(entries);
   }
 
   async function remove(f: FileItem) {
@@ -173,9 +266,28 @@ function Browser() {
             hidden
             onChange={(e) => onFiles(e.target.files)}
           />
-          <Button size="sm" onClick={() => fileInput.current?.click()}>
+          <Button size="sm" onClick={() => fileInput.current?.click()} disabled={!!progress}>
             <Upload className="size-4" /> Upload
           </Button>
+
+          <input
+            ref={folderInput}
+            type="file"
+            multiple
+            hidden
+            {...({ webkitdirectory: "" } as Record<string, string>)}
+            onChange={(e) => onFolderPicked(e.target.files)}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => folderInput.current?.click()}
+            disabled={!!progress}
+          >
+            <FolderUp className="size-4" /> Upload folder
+          </Button>
+
+          {progress && <span className="text-xs text-muted-foreground">{progress}</span>}
 
           <Dialog>
             <DialogTrigger render={<Button variant="outline" size="sm" />}>

@@ -50,11 +50,14 @@ def _resolve_pipelines(payload: SearchQuery) -> list[Pipeline]:
     return pipelines_for_modalities(payload.modalities)
 
 
-def _crumbs(collection_name: str, dir_path: str) -> list[Crumb]:
+def _crumbs(collection_name: str, dir_path: str, ancestor_ids: list | None = None) -> list[Crumb]:
+    """Breadcrumb with real directory ids so the UI can link each level — dir_path's
+    segments pair 1:1 with the point's ancestor_dir_ids (both root→own-folder)."""
     crumbs = [Crumb(id=None, name=collection_name)]
-    for name in dir_path.strip("/").split("/"):
-        if name:
-            crumbs.append(Crumb(id=None, name=name))
+    ids = list(ancestor_ids or [])
+    names = [n for n in dir_path.strip("/").split("/") if n]
+    for i, name in enumerate(names):
+        crumbs.append(Crumb(id=ids[i] if i < len(ids) else None, name=name))
     return crumbs
 
 
@@ -163,7 +166,9 @@ async def search(payload: SearchQuery, user: CurrentUser, session: SessionDep) -
                 collection_id=pl.get("collection_id", ""),
                 directory_id=pl.get("directory_id"),
                 dir_path=pl.get("dir_path", "/"),
-                breadcrumb=_crumbs(pl.get("collection_name", ""), pl.get("dir_path", "/")),
+                breadcrumb=_crumbs(
+                    pl.get("collection_name", ""), pl.get("dir_path", "/"), pl.get("ancestor_dir_ids")
+                ),
                 score=e["score"],
                 best=e["best"],
                 matched_spaces=sorted(e["spaces"]),

@@ -1,20 +1,7 @@
 "use client";
 
-import {
-  FilterField,
-  toFilterPredicates,
-  visibleFilterFields,
-  type FilterBarState,
-  type FilterFieldDef,
-} from "@drekis/shader";
-import {
-  Clock,
-  MoveHorizontal,
-  MoveVertical,
-  RectangleHorizontal,
-  SlidersHorizontal,
-  Type,
-} from "lucide-react";
+import { toFilterPredicates, type FilterBarState, type FilterFieldDef } from "@drekis/shader";
+import { Clock, MoveHorizontal, MoveVertical, RectangleHorizontal, Type } from "lucide-react";
 
 import type { MetaFilter, Modality } from "@/lib/types";
 
@@ -24,9 +11,10 @@ export type FilterState = FilterBarState;
 const iconCls = "size-3.5 text-muted-foreground";
 
 // BrainShare's filterable-metadata catalogue, declared in shader's shared FilterFieldDef
-// vocabulary. `tags` = the modalities a field applies to → the bar is "type-aware":
-// it only shows a field while one of its modalities is active.
-const FIELDS: FilterFieldDef[] = [
+// vocabulary. `tags` = the modalities a field applies to. The search sidebar nests each
+// field under its file type's checkbox (a field tagged for two types appears under both,
+// sharing one state entry — it is a single filter).
+export const META_FIELDS: FilterFieldDef[] = [
   { key: "duration_s", label: "Duration", unit: "s", icon: <Clock className={iconCls} />, tags: ["audio", "video"], kind: "range" },
   { key: "width", label: "Width", unit: "px", icon: <MoveHorizontal className={iconCls} />, tags: ["image", "video"], kind: "range" },
   { key: "height", label: "Height", unit: "px", icon: <MoveVertical className={iconCls} />, tags: ["image", "video"], kind: "range" },
@@ -41,39 +29,17 @@ const FIELDS: FilterFieldDef[] = [
   { key: "word_count", label: "Words", icon: <Type className={iconCls} />, tags: ["text"], kind: "range" },
 ];
 
-/** Derive the backend MetaFilter[] from the UI state — only for fields visible under `active`. */
-export function toMetaFilters(state: FilterState, active: Set<Modality>): MetaFilter[] {
-  return toFilterPredicates(FIELDS, state, active).map((p) => ({
+/** Fields that apply to one file type (what nests under its checkbox). */
+export function metaFieldsFor(modality: Modality): FilterFieldDef[] {
+  return META_FIELDS.filter((f) => f.tags?.includes(modality));
+}
+
+/** Derive the backend MetaFilter[] from the UI state — only for fields whose type is
+ *  active, so a stale value behind a deactivated type never leaks into the query. */
+export function toMetaFilters(state: FilterState, active: ReadonlySet<Modality>): MetaFilter[] {
+  return toFilterPredicates(META_FIELDS, state, active).map((p) => ({
     field: p.field,
     op: p.op,
     value: p.value,
   }));
-}
-
-/** Dynamic, type-aware metadata filter section. Controlled by the parent — a thin
- *  adapter over shader's FilterField (the control rendering lives in the library). */
-export function MetaFilterBar({
-  active,
-  value,
-  onChange,
-}: {
-  active: Set<Modality>;
-  value: FilterState;
-  onChange: (next: FilterState) => void;
-}) {
-  const fields = visibleFilterFields(FIELDS, active);
-  if (!fields.length) return null;
-
-  return (
-    <div>
-      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        <SlidersHorizontal className="size-3.5" /> Filters
-      </div>
-      <div className="flex flex-col gap-3">
-        {fields.map((f) => (
-          <FilterField key={f.key} def={f} state={value} onChange={onChange} />
-        ))}
-      </div>
-    </div>
-  );
 }
