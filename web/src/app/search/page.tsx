@@ -8,6 +8,7 @@ import {
   FilterField,
   FilterSheet,
   ScopePicker,
+  SeeResultsButton,
   cn,
   toast,
   useHideOnScroll,
@@ -167,17 +168,25 @@ function FiltersContent(p: FilterProps) {
   );
 }
 
-/** Layer-dependent filter aside — sticky under the top bar, shifts up when it hides. */
-function Filters(p: FilterProps) {
+/** Layer-dependent filter aside — sticky under the top bar, shifts up when it hides.
+ *  When there are unapplied filter edits, a sticky Apply bar pins to the bottom. */
+function Filters(p: FilterProps & { dirty: boolean; onApply: () => void }) {
   const hidden = useHideOnScroll(true);
   return (
     <aside
       className={cn(
-        "sticky hidden w-60 shrink-0 flex-col gap-5 overflow-y-auto border-r border-border bg-background px-4 py-5 transition-[top,height] duration-300 lg:flex",
+        "sticky hidden w-60 shrink-0 flex-col border-r border-border bg-background transition-[top,height] duration-300 lg:flex",
         hidden ? "top-0 h-dvh" : "top-14 h-[calc(100dvh-3.5rem)]",
       )}
     >
-      <FiltersContent {...p} />
+      <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-4 py-5">
+        <FiltersContent {...p} />
+      </div>
+      {p.dirty && (
+        <div className="shrink-0 border-t border-border bg-background p-3">
+          <SeeResultsButton onClick={p.onApply} label="Apply filters" />
+        </div>
+      )}
     </aside>
   );
 }
@@ -382,6 +391,35 @@ function SearchView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catalog, [...mods].sort().join(","), JSON.stringify(filterState)]);
 
+  // The search request the DRAFT filters describe. Editing filters only changes this;
+  // it is not sent until applied — semantic search is expensive, so we avoid a call on
+  // every toggle.
+  const draftRequest = useMemo(
+    () => ({
+      modalities: [...mods],
+      pipelines: effectivePipes,
+      collection_ids: searchCollectionIds,
+      directory_id: dir,
+      include_subdirs: subdirs,
+      filters: metaFilters,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dir, subdirs, (searchCollectionIds ?? []).join(","), [...mods].sort().join(","), (effectivePipes ?? []).join(","), JSON.stringify(metaFilters)],
+  );
+
+  // The APPLIED request — what the search actually runs. Only "Apply filters" (and a new
+  // query/navigation) commits the draft here.
+  const [applied, setApplied] = useState(draftRequest);
+  const dirty = JSON.stringify(draftRequest) !== JSON.stringify(applied);
+  const applyFilters = () => setApplied(draftRequest);
+
+  // A new query or a change of browsed scope applies the current filters immediately
+  // (submitting a query is the explicit "search now" — no need to also press Apply).
+  useEffect(() => {
+    setApplied(draftRequest);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, cid, dir]);
+
   useEffect(() => {
     if (!q.trim() || !getUuid()) {
       setHits(null);
@@ -389,14 +427,7 @@ function SearchView() {
     }
     let active = true;
     setBusy(true);
-    search(q.trim(), {
-      modalities: [...mods],
-      pipelines: effectivePipes,
-      collection_ids: searchCollectionIds,
-      directory_id: dir,
-      include_subdirs: subdirs,
-      filters: metaFilters,
-    })
+    search(q.trim(), applied)
       .then((r) => active && setHits(r.hits))
       .catch((e) => active && toast.error(String((e as Error).message)))
       .finally(() => active && setBusy(false));
@@ -404,7 +435,7 @@ function SearchView() {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, cid, dir, subdirs, (searchCollectionIds ?? []).join(","), [...mods].sort().join(","), (effectivePipes ?? []).join(","), JSON.stringify(metaFilters)]);
+  }, [q, JSON.stringify(applied)]);
 
   function clearScope() {
     const params = new URLSearchParams();
@@ -451,13 +482,17 @@ function SearchView() {
 
   return (
     <div className="flex w-full">
-      <Filters {...filterProps} />
+      <Filters {...filterProps} dirty={dirty} onApply={applyFilters} />
 
       <FilterSheet
         open={filtersOpen}
         onClose={closeFilters}
-        onSeeResults={closeFilters}
-        count={hits?.length ?? null}
+        onSeeResults={() => {
+          if (dirty) applyFilters();
+          closeFilters();
+        }}
+        seeResultsLabel={dirty ? "Apply filters" : "See results"}
+        count={dirty ? undefined : (hits?.length ?? null)}
       >
         <FiltersContent {...filterProps} />
       </FilterSheet>
