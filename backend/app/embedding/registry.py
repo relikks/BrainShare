@@ -33,7 +33,7 @@ SPACES: dict[str, Space] = {
     "image": Space("image", "google/siglip2-so400m-patch16-naflex", 1152, "embed_image"),
     "audio": Space("audio", "wavlink/wavlink-base", 512, "embed_audio"),
     "video": Space("video", "microsoft/xclip-base-patch32", 512, "embed_video"),
-    # Florence-2 caption+tags, embedded with the text model (object-level image search).
+    # RAM++ tags, embedded with the text model (object-level image search).
     "image_objects": Space("image_objects", "Qwen/Qwen3-Embedding-4B", 2560, "embed_text"),
 }
 
@@ -79,7 +79,7 @@ PIPELINES: dict[str, Pipeline] = {
             Modality.image, "image", "image", "image",
         ),
         Pipeline(
-            "image.objects", "Objects", "Fuzzy match on objects detected in the image (Florence-2 tags).",
+            "image.objects", "Objects", "Fuzzy match on objects detected in the image (RAM++ tags).",
             Modality.image, "image_objects", "text", "objects",
         ),
         Pipeline(

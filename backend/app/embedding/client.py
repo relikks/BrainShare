@@ -39,7 +39,7 @@ class Embedder(ABC):
     async def transcribe(self, clip: bytes) -> str: ...
     @abstractmethod
     async def describe_image(self, images: list[bytes]) -> list[dict]: ...
-    # describe_image → [{"caption": str, "tags": [str, ...]}] (Florence-2)
+    # describe_image → [{"caption": str, "tags": [str, ...]}] (RAM++ tags; caption unused)
 
     async def query_vector(self, space: str, text: str) -> Vec:
         """Embed an NL query into a given space via that space's text tower."""

@@ -168,15 +168,11 @@ async def _embed(session, f: File) -> None:
         # stamped, so every point's payload carries them (filters + explainability).
         async def _objects() -> None:
             desc = (await emb.describe_image([data]))[0]
-            caption = (desc.get("caption") or "").strip()
             tags = [t for t in (desc.get("tags") or []) if t]
-            # Caption already ends in a period → strip it before the ". " join so the
-            # doc reads "caption. tag1, tag2" (not "caption.. tag1").
-            parts = [caption.rstrip(". "), ", ".join(tags)]
-            doc = ". ".join(x for x in parts if x)
-            if not doc:
+            if not tags:
                 return
-            f.meta = {**f.meta, "caption": caption, "tags": tags}
+            doc = ", ".join(tags)
+            f.meta = {**f.meta, "tags": tags}
             base["meta"] = f.meta
             vec = (await emb.embed_text([doc]))[0]
             await vector_store.upsert(

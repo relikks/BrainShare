@@ -42,7 +42,7 @@ MODULES: dict[str, dict] = {
     "objects": {
         "default": True,
         "label": "Object detection",
-        "desc": "Detect objects and caption images (Florence-2) for object-level search.",
+        "desc": "Detect objects (RAM++) for object-level image search.",
         "modalities": ["image"],
     },
     "ocr": {

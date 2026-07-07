@@ -94,7 +94,7 @@ async def collection_tags(
     session: SessionDep,
     directory_id: str | None = Query(default=None),
 ) -> list[TagCount]:
-    """Distinct object tags (Florence, stored in file.meta.tags) across the collection —
+    """Distinct object tags (RAM++, stored in file.meta.tags) across the collection —
     or, when directory_id is given, that folder and its subtree. Feeds the tag-filter
     modal so the user picks from tags that actually exist in scope."""
     await require_member(session, user, collection_id)

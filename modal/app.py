@@ -23,7 +23,6 @@ IMAGE_MODEL = "google/siglip2-so400m-patch14-384"  # SO400M — near image-retri
 AUDIO_MODEL = "laion/clap-htsat-unfused"  # WavLink target once weights are public
 VIDEO_MODEL = "microsoft/xclip-base-patch32"
 WHISPER_MODEL = "base"  # faster-whisper size for transcripts
-TAGGER_MODEL = "microsoft/Florence-2-large"  # caption + object tags (objects pipeline)
 
 app = modal.App("brainshare-embed")
 
@@ -47,8 +46,6 @@ image = (
         "nvidia-cudnn-cu12",
         "hf-transfer",
         "numpy",
-        "einops",  # Florence-2 remote code
-        "timm",  # Florence-2 vision tower
     )
     .env(_env)
 )
@@ -230,69 +227,75 @@ class VideoEmbedder:
             return _l2norm(feats).cpu().tolist()
 
 
-# ── Image tagger: Florence-2 (caption + object tags → the objects pipeline) ───
-# Own image: Florence-2's remote code breaks on transformers ≥4.52 (missing
-# forced_bos_token_id) — pin 4.51.3 here without touching the other embedders.
+# ── Image tagger: RAM++ (open-vocab object tags → the objects pipeline) ───────
+# RAM++ (Recognize Anything Plus) — a dedicated SOTA image tagger over a
+# ~4.5k open-vocabulary tag set. One Swin-L forward pass per image (no autoregressive
+# generation — much cheaper than Florence's caption). Tags only, no caption.
+RAM_REPO = "xinyu1205/recognize-anything-plus-model"
+RAM_CKPT = "ram_plus_swin_large_14m.pth"
+
 tagger_image = (
     modal.Image.debian_slim(python_version="3.12")
+    .apt_install("git")
     .pip_install(
         "torch",
-        "transformers==4.51.3",
+        "torchvision",
+        # RAM's vendored BERT imports helpers from transformers.modeling_utils that
+        # newer transformers (≥4.49) removed — pin to a version that still exports them.
+        "transformers==4.40.2",
+        "timm==0.9.16",
         "pillow",
-        "einops",
-        "timm",
-        "hf-transfer",
-        "numpy",
+        "scipy",  # RAM tag inference
+        "fairscale",  # RAM's checkpoint_wrapper
+        "huggingface-hub",
+        "numpy<2",
+        "git+https://github.com/xinyu1205/recognize-anything.git",
     )
-    .env(_env)
+    # HF's Xet backend writes transient log files into the cache Volume during load;
+    # they break Modal's snapshot restore (9p walk → exit 128). Disable Xet here.
+    .env({"HF_HOME": CACHE, "HF_HUB_DISABLE_XET": "1"})
 )
 
 
-@app.cls(gpu="T4", image=tagger_image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=300, min_containers=0)
+# No memory snapshot for the tagger: RAM++'s Xet-cache writes make snapshot restore
+# fail. Weight load is only ~2s from the Volume, so plain cold start is fine.
+@app.cls(gpu="T4", image=tagger_image, volumes={CACHE: _cache}, scaledown_window=300, min_containers=0)
 class ImageTagger:
-    @modal.enter(snap=True)
+    @modal.enter()
     def load(self):
         import torch
-        from transformers import AutoModelForCausalLM, AutoProcessor
+
+        # RAM's vendored BERT imports these from transformers.modeling_utils, but modern
+        # transformers moved them to pytorch_utils — shim them back so the import works.
+        import transformers.modeling_utils as _mu
+        from transformers import pytorch_utils as _pu
+
+        for _name in ("apply_chunking_to_forward", "find_pruneable_heads_and_indices", "prune_linear_layer"):
+            if not hasattr(_mu, _name) and hasattr(_pu, _name):
+                setattr(_mu, _name, getattr(_pu, _name))
+
+        from huggingface_hub import hf_hub_download
+        from ram import get_transform
+        from ram.models import ram_plus
 
         self.torch = torch
-        self.proc = AutoProcessor.from_pretrained(TAGGER_MODEL, trust_remote_code=True)
-        self.model = (
-            AutoModelForCausalLM.from_pretrained(
-                TAGGER_MODEL, torch_dtype=torch.float16, trust_remote_code=True
-            )
-            .to("cuda")
-            .eval()
-        )
-
-    def _run(self, img, task: str) -> dict:
-        inputs = self.proc(text=task, images=img, return_tensors="pt")
-        inputs = {
-            k: v.to("cuda", self.torch.float16) if v.dtype.is_floating_point else v.to("cuda")
-            for k, v in inputs.items()
-        }
-        with self.torch.no_grad():
-            ids = self.model.generate(
-                input_ids=inputs["input_ids"],
-                pixel_values=inputs["pixel_values"],
-                max_new_tokens=256,
-                num_beams=3,
-                do_sample=False,
-            )
-        text = self.proc.batch_decode(ids, skip_special_tokens=False)[0]
-        return self.proc.post_process_generation(text, task=task, image_size=(img.width, img.height))
+        ckpt = hf_hub_download(RAM_REPO, RAM_CKPT, cache_dir=CACHE)
+        self.transform = get_transform(image_size=384)
+        self.model = ram_plus(pretrained=ckpt, image_size=384, vit="swin_l").eval().to("cuda")
 
     @modal.method()
     def describe(self, images: list[bytes]) -> list[dict]:
-        """[{caption, tags}] — a detailed caption plus deduped object labels per image."""
+        """[{caption, tags}] — RAM++ open-vocab tags per image. caption kept empty for
+        interface compatibility (Florence's caption was dropped)."""
         from PIL import Image
+        from ram import inference_ram
 
         out = []
         for b in images:
-            img = Image.open(io.BytesIO(b)).convert("RGB")
-            caption = (self._run(img, "<MORE_DETAILED_CAPTION>").get("<MORE_DETAILED_CAPTION>") or "").strip()
-            od = self._run(img, "<OD>").get("<OD>") or {}
-            labels = od.get("labels") or []
-            tags = sorted({label.strip().lower() for label in labels if label and label.strip()})
-            out.append({"caption": caption, "tags": tags})
+            img = self.transform(Image.open(io.BytesIO(b)).convert("RGB")).unsqueeze(0).to("cuda")
+            with self.torch.no_grad():
+                res = inference_ram(img, self.model)
+            english = res[0] if isinstance(res, (tuple, list)) else res
+            tags = sorted({t.strip().lower() for t in str(english).split("|") if t.strip()})
+            out.append({"caption": "", "tags": tags})
         return out
