@@ -9,6 +9,7 @@ import {
 } from "@drekis/shader";
 import { type CSSProperties, type ReactNode, Suspense } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
+import { BottomNav } from "@/components/bottom-nav";
 import { TopBar } from "@/components/top-bar";
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -31,8 +32,12 @@ export function Providers({ children }: { children: ReactNode }) {
             <Suspense fallback={<div className="h-14 shrink-0 border-b border-border" />}>
               <TopBar />
             </Suspense>
-            <main className="flex-1">{children}</main>
+            {/* pb on mobile so content clears the fixed bottom nav */}
+            <main className="flex-1 pb-14 lg:pb-0">{children}</main>
           </SidebarInset>
+          <Suspense fallback={null}>
+            <BottomNav />
+          </Suspense>
         </ScrollDirectionProvider>
       </SidebarProvider>
       <Toaster />

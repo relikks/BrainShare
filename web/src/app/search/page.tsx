@@ -4,6 +4,8 @@ import {
   Badge,
   Button,
   Checkbox,
+  Dialog,
+  DialogContent,
   EmptyState,
   FilterField,
   ScopePicker,
@@ -92,21 +94,7 @@ function buildTypeFields(catalog: PipelineInfo[]): FilterFieldDef[] {
   });
 }
 
-/** Layer-dependent filter aside — sticky under the top bar, shifts up when it hides. */
-function Filters({
-  typeFields,
-  state,
-  setState,
-  subdirs,
-  setSubdirs,
-  scoped,
-  collectionOptions,
-  selectedCollections,
-  onCollectionsChange,
-  tagOptions,
-  selectedTags,
-  onTagsChange,
-}: {
+type FilterProps = {
   typeFields: FilterFieldDef[];
   state: FilterBarState;
   setState: (s: FilterBarState) => void;
@@ -119,21 +107,18 @@ function Filters({
   tagOptions: ScopeOption[];
   selectedTags: string[];
   onTagsChange: (ids: string[]) => void;
-}) {
-  const hidden = useHideOnScroll(true);
+};
+
+/** The filter controls, layout-agnostic — used by the desktop aside and the mobile sheet. */
+function FiltersContent(p: FilterProps) {
   return (
-    <aside
-      className={cn(
-        "sticky hidden w-60 shrink-0 flex-col gap-5 overflow-y-auto border-r border-border bg-background px-4 py-5 transition-[top,height] duration-300 lg:flex",
-        hidden ? "top-0 h-dvh" : "top-14 h-[calc(100dvh-3.5rem)]",
-      )}
-    >
+    <>
       {/* Collection scope — only when not already pinned to a browsed folder. */}
-      {!scoped && collectionOptions.length > 0 && (
+      {!p.scoped && p.collectionOptions.length > 0 && (
         <ScopePicker
-          options={collectionOptions}
-          selected={selectedCollections}
-          onChange={onCollectionsChange}
+          options={p.collectionOptions}
+          selected={p.selectedCollections}
+          onChange={p.onCollectionsChange}
           icon={<Library className="size-4" />}
           title="Search in"
           anyLabel="Any collection"
@@ -147,18 +132,18 @@ function Filters({
           <Layers className="size-3.5" /> Search by
         </div>
         <div className="flex flex-col gap-2.5">
-          {typeFields.map((f) => (
-            <FilterField key={f.key} def={f} state={state} onChange={setState} />
+          {p.typeFields.map((f) => (
+            <FilterField key={f.key} def={f} state={p.state} onChange={p.setState} />
           ))}
         </div>
       </div>
 
       {/* Object tags — pick from the tags that actually exist in the current scope. */}
-      {tagOptions.length > 0 && (
+      {p.tagOptions.length > 0 && (
         <ScopePicker
-          options={tagOptions}
-          selected={selectedTags}
-          onChange={onTagsChange}
+          options={p.tagOptions}
+          selected={p.selectedTags}
+          onChange={p.onTagsChange}
           layout="chips"
           icon={<Tag className="size-4" />}
           title="Tags"
@@ -168,17 +153,32 @@ function Filters({
         />
       )}
 
-      {scoped && (
+      {p.scoped && (
         <div>
           <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Scope
           </div>
           <label className="flex cursor-pointer items-center gap-2.5 text-sm">
-            <Checkbox checked={subdirs} onCheckedChange={() => setSubdirs(!subdirs)} />
+            <Checkbox checked={p.subdirs} onCheckedChange={() => p.setSubdirs(!p.subdirs)} />
             <span>Include subfolders</span>
           </label>
         </div>
       )}
+    </>
+  );
+}
+
+/** Layer-dependent filter aside — sticky under the top bar, shifts up when it hides. */
+function Filters(p: FilterProps) {
+  const hidden = useHideOnScroll(true);
+  return (
+    <aside
+      className={cn(
+        "sticky hidden w-60 shrink-0 flex-col gap-5 overflow-y-auto border-r border-border bg-background px-4 py-5 transition-[top,height] duration-300 lg:flex",
+        hidden ? "top-0 h-dvh" : "top-14 h-[calc(100dvh-3.5rem)]",
+      )}
+    >
+      <FiltersContent {...p} />
     </aside>
   );
 }
@@ -427,22 +427,39 @@ function SearchView() {
     });
   }
 
+  const filterProps = {
+    typeFields,
+    state: filterState,
+    setState: setFilterState,
+    subdirs,
+    setSubdirs,
+    scoped: !!dir,
+    collectionOptions,
+    selectedCollections: scopeCids,
+    onCollectionsChange: setScopeCids,
+    tagOptions,
+    selectedTags,
+    onTagsChange: setSelectedTags,
+  };
+
+  // Mobile filter sheet, toggled by the top bar's filter button via ?filters=1.
+  const filtersOpen = sp.get("filters") === "1";
+  function closeFilters() {
+    const params = new URLSearchParams(sp.toString());
+    params.delete("filters");
+    router.replace(`/search?${params.toString()}`);
+  }
+
   return (
     <div className="flex w-full">
-      <Filters
-        typeFields={typeFields}
-        state={filterState}
-        setState={setFilterState}
-        subdirs={subdirs}
-        setSubdirs={setSubdirs}
-        scoped={!!dir}
-        collectionOptions={collectionOptions}
-        selectedCollections={scopeCids}
-        onCollectionsChange={setScopeCids}
-        tagOptions={tagOptions}
-        selectedTags={selectedTags}
-        onTagsChange={setSelectedTags}
-      />
+      <Filters {...filterProps} />
+
+      <Dialog open={filtersOpen} onOpenChange={(o) => !o && closeFilters()}>
+        <DialogContent className="flex max-h-[85vh] flex-col gap-5 overflow-y-auto sm:max-w-sm lg:hidden">
+          <div className="text-base font-semibold">Filters</div>
+          <FiltersContent {...filterProps} />
+        </DialogContent>
+      </Dialog>
 
       <div className="min-w-0 flex-1 px-5 py-5">
         <div className="mb-2 flex items-center gap-2">

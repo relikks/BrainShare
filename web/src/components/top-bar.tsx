@@ -1,29 +1,46 @@
 "use client";
 
 import {
+  AppTopBar,
   Button,
+  DomainChip,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   SearchBar,
-  SidebarTrigger,
   cn,
-  useHideOnScroll,
 } from "@drekis/shader";
-import { ChevronDown, Moon, Sun, User } from "lucide-react";
+import {
+  Brain,
+  ChevronDown,
+  FolderPlus,
+  HardDrive,
+  Moon,
+  Plus,
+  Search as SearchIcon,
+  SlidersHorizontal,
+  Sun,
+  User,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { createCollection } from "@/lib/api";
 import { getUsername } from "@/lib/config";
+
+// BrainShare "domains" — the two top-level modes. The chip shows the current one and
+// opens a menu to switch (the shared DomainChip pattern; CardForge opens a /domains page).
+const DOMAINS = [
+  { key: "drive", label: "Drive", icon: HardDrive, href: "/" as const },
+  { key: "search", label: "Search", icon: SearchIcon, href: "/search" as const },
+];
 
 export function TopBar() {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
-  const hidden = useHideOnScroll(true); // hide only after scrolling past the bar
-  const inputRef = useRef<HTMLInputElement>(null);
   const [term, setTerm] = useState("");
   const [username, setUsername] = useState<string | null>(null);
   const [dark, setDark] = useState(false);
@@ -31,7 +48,6 @@ export function TopBar() {
   useEffect(() => setUsername(getUsername()), [pathname]);
   useEffect(() => setTerm(sp.get("q") ?? ""), [sp]);
 
-  // theme toggle (attribute-based, like cardforge)
   useEffect(() => {
     const saved = localStorage.getItem("brainshare.theme") === "dark";
     setDark(saved);
@@ -44,9 +60,10 @@ export function TopBar() {
     localStorage.setItem("brainshare.theme", next ? "dark" : "light");
   }
 
+  const domain = pathname.startsWith("/search") ? DOMAINS[1] : DOMAINS[0];
+
   function submit() {
     const v = term.trim();
-    // carry the current scope: collection from a /c/<id> path, dir from ?dir
     const params = new URLSearchParams();
     const onCollection = pathname.match(/^\/c\/([^/]+)/);
     const cid = onCollection ? onCollection[1] : sp.get("cid");
@@ -57,53 +74,107 @@ export function TopBar() {
     router.push(`/search?${params.toString()}`);
   }
 
-  return (
-    <header
-      className={cn(
-        "sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border bg-background px-3 transition-transform duration-300",
-        hidden && "-translate-y-full",
-      )}
+  async function newCollection() {
+    const name = window.prompt("New collection name");
+    if (!name?.trim()) return;
+    const c = await createCollection(name.trim());
+    router.push(`/c/${c.id}`);
+  }
+
+  // Mobile filter trigger — only meaningful on /search; toggles the ?filters sheet.
+  function toggleFilters() {
+    const params = new URLSearchParams(sp.toString());
+    if (params.get("filters")) params.delete("filters");
+    else params.set("filters", "1");
+    router.push(`/search?${params.toString()}`);
+  }
+
+  const DomainIcon = domain.icon;
+  const domainChip = (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<span />}>
+        <DomainChip icon={DomainIcon} label={domain.label} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-44">
+        {DOMAINS.map((d) => (
+          <DropdownMenuItem key={d.key} render={<Link href={d.href} />}>
+            <d.icon className="size-4" /> {d.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const userMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="gap-1.5 px-2 text-xs" />}>
+        <div className="flex size-7 items-center justify-center rounded-full bg-muted">
+          <User className="size-4" />
+        </div>
+        <span className="hidden md:inline">{username ?? "guest"}</span>
+        <ChevronDown className="size-3 text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuItem onClick={toggleTheme}>
+          {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          {dark ? "Light theme" : "Dark theme"}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem render={<Link href="/" />}>Collections</DropdownMenuItem>
+        <DropdownMenuItem render={<Link href="/search" />}>Search</DropdownMenuItem>
+        <DropdownMenuItem render={<Link href="/settings" />}>Settings</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const plusAction = (
+    <Button variant="ghost" size="sm" className="size-9 p-0" aria-label="New collection" onClick={newCollection}>
+      <Plus className="size-5" />
+    </Button>
+  );
+
+  const filterButton = domain.key === "search" ? (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="size-9 shrink-0 p-0 lg:hidden"
+      aria-label="Filters"
+      onClick={toggleFilters}
     >
-      <SidebarTrigger />
+      <SlidersHorizontal className="size-5" />
+    </Button>
+  ) : undefined;
 
-      <SearchBar
-        ref={inputRef}
-        size="md"
-        containerClassName="max-w-2xl flex-1"
-        placeholder={
-          pathname.startsWith("/c/")
-            ? sp.get("dir")
-              ? "Search in this folder…"
-              : "Search in this collection…"
-            : "Search your knowledge…"
-        }
-        value={term}
-        onValueChange={setTerm}
-        onSubmit={submit}
-      />
-
-      <div className="ms-auto flex items-center gap-1">
-        <Button variant="ghost" size="sm" className="size-9 p-0" onClick={toggleTheme}>
-          {dark ? <Sun className="size-5" /> : <Moon className="size-5" />}
-        </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={<Button variant="ghost" size="sm" className="gap-1.5 px-2 text-xs" />}
-          >
-            <div className="flex size-7 items-center justify-center rounded-full bg-muted">
-              <User className="size-4" />
-            </div>
-            <span className="hidden md:inline">{username ?? "guest"}</span>
-            <ChevronDown className="size-3 text-muted-foreground" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuItem render={<Link href="/" />}>Collections</DropdownMenuItem>
-            <DropdownMenuItem render={<Link href="/search" />}>Search</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem render={<Link href="/settings" />}>Settings</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </header>
+  return (
+    <AppTopBar
+      brand={
+        <Link href="/" aria-label="BrainShare home" className="flex items-center gap-2">
+          <span className="flex size-8 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+            <Brain className="size-5" />
+          </span>
+          <span className="text-sm font-semibold">BrainShare</span>
+        </Link>
+      }
+      domains={domainChip}
+      search={
+        <SearchBar
+          size="md"
+          containerClassName="w-full"
+          placeholder={
+            pathname.startsWith("/c/")
+              ? sp.get("dir")
+                ? "Search in this folder…"
+                : "Search in this collection…"
+              : "Search your knowledge…"
+          }
+          value={term}
+          onValueChange={setTerm}
+          onSubmit={submit}
+        />
+      }
+      user={userMenu}
+      primaryAction={plusAction}
+      filter={filterButton}
+    />
   );
 }
