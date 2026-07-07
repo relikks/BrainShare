@@ -155,6 +155,47 @@ class TagCount(BaseModel):
     count: int
 
 
+# ── Knowledge graph (people / events / categories + faces) ──
+class EntityCreate(BaseModel):
+    kind: Literal["person", "event", "category"] = "person"
+    name: str
+    meta: dict | None = None
+
+
+class EntityOut(_FromAttrs):
+    id: str
+    kind: str
+    name: str
+    meta: dict = {}
+    created_at: datetime
+
+
+class FileEntitiesUpdate(BaseModel):
+    kind: Literal["person", "event", "category"]
+    entity_ids: list[str]
+
+
+class FaceOut(_FromAttrs):
+    id: str
+    file_id: str
+    collection_id: str
+    bbox: list = []
+    score: float = 0.0
+    person_id: str | None = None
+
+
+class FaceInboxCluster(BaseModel):
+    face_ids: list[str]
+    faces: list[FaceOut]  # a few representatives for the UI
+    count: int
+
+
+class FaceAssign(BaseModel):
+    face_ids: list[str]
+    person_id: str | None = None  # assign to existing person…
+    name: str | None = None  # …or create a new person with this name
+
+
 # ── Search pipelines (static catalog) ──
 class PipelineInfo(BaseModel):
     key: str

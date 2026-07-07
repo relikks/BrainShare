@@ -134,6 +134,20 @@ def _build_filter(
     return models.Filter(must=must) if must else None
 
 
+async def get_vectors(space: str, ids: Sequence[str]) -> dict[str, list[float]]:
+    """Fetch the raw vectors for the given point ids (face clustering)."""
+    name = _coll(space)
+
+    def _do() -> dict[str, list[float]]:
+        client = _get_client()
+        if not ids or name not in {c.name for c in client.get_collections().collections}:
+            return {}
+        pts = client.retrieve(collection_name=name, ids=list(ids), with_vectors=True)
+        return {str(p.id): list(p.vector) for p in pts if p.vector is not None}
+
+    return await asyncio.to_thread(_do)
+
+
 async def search(
     space: str,
     vector: list[float],

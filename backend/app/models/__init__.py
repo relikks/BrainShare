@@ -7,7 +7,8 @@ from .entities import (
     new_id,
     utcnow,
 )
-from .enums import FileStatus, Modality, Role
+from .enums import EntityKind, FileStatus, Modality, Role
+from .graph import Entity, Face, FileEntity
 
 __all__ = [
     "Collection",
@@ -15,6 +16,10 @@ __all__ = [
     "Directory",
     "File",
     "User",
+    "Entity",
+    "FileEntity",
+    "Face",
+    "EntityKind",
     "FileStatus",
     "Modality",
     "Role",

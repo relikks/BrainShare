@@ -17,7 +17,7 @@ from pathlib import Path
 
 from ..db import _session_factory
 from ..embedding import get_embedder
-from ..models import Collection, Directory, File, FileStatus, Modality, new_id, utcnow
+from ..models import Collection, Directory, Face, File, FileStatus, Modality, new_id, utcnow
 from ..modules import module_on
 from ..storage import get_storage
 from .. import vector_store
@@ -184,20 +184,34 @@ async def _embed(session, f: File) -> None:
             await vector_store.upsert("image", [_point(vec, base, segment="image", text=f.name)])
 
         async def _faces() -> None:
+            # Re-embed path: drop this file's stale Face rows first (Qdrant points are
+            # already purged by delete_file at the top of _embed).
+            from sqlmodel import delete as _delete
+
+            await session.exec(_delete(Face).where(Face.file_id == f.id))
+
             faces = (await emb.detect_faces([data]))[0]
-            if not faces:
-                f.meta = {**f.meta, "face_count": 0}
-                base["meta"] = f.meta
-                return
-            # One point per face in the `face` space (vector = ArcFace embedding),
-            # carrying its box so the UI can highlight it and clustering can name it.
-            pts = [
-                _point(fc["embedding"], base, segment=f"face-{i}", bbox=fc["bbox"], face_score=fc["score"])
-                for i, fc in enumerate(faces)
-                if fc.get("embedding")
-            ]
-            f.meta = {**f.meta, "face_count": len(pts), "faces": [{"bbox": fc["bbox"]} for fc in faces]}
+            f.meta = {**f.meta, "face_count": len(faces), "faces": [{"bbox": fc["bbox"]} for fc in faces]}
             base["meta"] = f.meta
+            if not faces:
+                return
+            # One point per face in the `face` space (vector = ArcFace embedding) + a Face
+            # row carrying its box and (later) the person it's assigned to.
+            pts = []
+            for i, fc in enumerate(faces):
+                if not fc.get("embedding"):
+                    continue
+                pt = _point(fc["embedding"], base, segment=f"face-{i}", bbox=fc["bbox"], face_score=fc["score"])
+                pts.append(pt)
+                session.add(
+                    Face(
+                        file_id=f.id,
+                        collection_id=f.collection_id,
+                        point_id=pt["id"],
+                        bbox=fc["bbox"],
+                        score=fc["score"],
+                    )
+                )
             if pts:
                 await vector_store.upsert("face", pts)
 

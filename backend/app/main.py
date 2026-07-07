@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db
 from .config import settings
-from .routers import branding, collections, directories, files, search, users
+from .routers import branding, collections, directories, files, graph, search, users
 
 logger = logging.getLogger("brainshare")
 
@@ -41,6 +41,7 @@ app.include_router(collections.router)
 app.include_router(directories.router)
 app.include_router(files.router)
 app.include_router(search.router)
+app.include_router(graph.router)
 app.include_router(branding.router)
 
 

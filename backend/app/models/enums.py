@@ -24,3 +24,11 @@ class FileStatus(StrEnum):
     pending = "pending"
     ready = "ready"
     failed = "failed"
+
+
+class EntityKind(StrEnum):
+    """A knowledge-graph node the user creates."""
+
+    person = "person"
+    event = "event"
+    category = "category"
