@@ -148,11 +148,10 @@ export function TopBar() {
   return (
     <AppTopBar
       brand={
-        <Link href="/" aria-label="BrainShare home" className="flex items-center gap-2">
+        <Link href="/" aria-label="BrainShare home">
           <span className="flex size-8 items-center justify-center rounded-xl bg-primary text-primary-foreground">
             <Brain className="size-5" />
           </span>
-          <span className="text-sm font-semibold">BrainShare</span>
         </Link>
       }
       domains={domainChip}
