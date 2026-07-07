@@ -4,10 +4,9 @@ import {
   Badge,
   Button,
   Checkbox,
-  Dialog,
-  DialogContent,
   EmptyState,
   FilterField,
+  FilterSheet,
   ScopePicker,
   cn,
   toast,
@@ -454,12 +453,14 @@ function SearchView() {
     <div className="flex w-full">
       <Filters {...filterProps} />
 
-      <Dialog open={filtersOpen} onOpenChange={(o) => !o && closeFilters()}>
-        <DialogContent className="flex max-h-[85vh] flex-col gap-5 overflow-y-auto sm:max-w-sm lg:hidden">
-          <div className="text-base font-semibold">Filters</div>
-          <FiltersContent {...filterProps} />
-        </DialogContent>
-      </Dialog>
+      <FilterSheet
+        open={filtersOpen}
+        onClose={closeFilters}
+        onSeeResults={closeFilters}
+        count={hits?.length ?? null}
+      >
+        <FiltersContent {...filterProps} />
+      </FilterSheet>
 
       <div className="min-w-0 flex-1 px-5 py-5">
         <div className="mb-2 flex items-center gap-2">

@@ -14,10 +14,12 @@ const iconCls = "size-3.5 text-muted-foreground";
 // vocabulary. `tags` = the modalities a field applies to. The search sidebar nests each
 // field under its file type's checkbox (a field tagged for two types appears under both,
 // sharing one state entry — it is a single filter).
+// Range bounds are sensible platform defaults (data-driven per-scope ranges are a
+// follow-up via a facets endpoint) — enough for the RangeSlider to be usable.
 export const META_FIELDS: FilterFieldDef[] = [
-  { key: "duration_s", label: "Duration", unit: "s", icon: <Clock className={iconCls} />, tags: ["audio", "video"], kind: "range" },
-  { key: "width", label: "Width", unit: "px", icon: <MoveHorizontal className={iconCls} />, tags: ["image", "video"], kind: "range" },
-  { key: "height", label: "Height", unit: "px", icon: <MoveVertical className={iconCls} />, tags: ["image", "video"], kind: "range" },
+  { key: "duration_s", label: "Duration", unit: "s", icon: <Clock className={iconCls} />, tags: ["audio", "video"], kind: "range", min: 0, max: 1800, step: 5 },
+  { key: "width", label: "Width", unit: "px", icon: <MoveHorizontal className={iconCls} />, tags: ["image", "video"], kind: "range", min: 0, max: 4000, step: 10 },
+  { key: "height", label: "Height", unit: "px", icon: <MoveVertical className={iconCls} />, tags: ["image", "video"], kind: "range", min: 0, max: 4000, step: 10 },
   {
     key: "orientation",
     label: "Orientation",
@@ -26,7 +28,7 @@ export const META_FIELDS: FilterFieldDef[] = [
     kind: "enum",
     options: [{ value: "landscape" }, { value: "portrait" }, { value: "square" }],
   },
-  { key: "word_count", label: "Words", icon: <Type className={iconCls} />, tags: ["text"], kind: "range" },
+  { key: "word_count", label: "Words", icon: <Type className={iconCls} />, tags: ["text"], kind: "range", min: 0, max: 5000, step: 50 },
 ];
 
 /** Fields that apply to one file type (what nests under its checkbox). */

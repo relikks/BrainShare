@@ -3,12 +3,15 @@
 import {
   AppTopBar,
   Button,
+  Dialog,
+  DialogContent,
   DomainChip,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  OptionPicker,
   SearchBar,
   cn,
 } from "@drekis/shader";
@@ -33,8 +36,8 @@ import { getUsername } from "@/lib/config";
 // BrainShare "domains" — the two top-level modes. The chip shows the current one and
 // opens a menu to switch (the shared DomainChip pattern; CardForge opens a /domains page).
 const DOMAINS = [
-  { key: "drive", label: "Drive", icon: HardDrive, href: "/" as const },
-  { key: "search", label: "Search", icon: SearchIcon, href: "/search" as const },
+  { key: "drive", label: "Drive", icon: HardDrive, href: "/" as const, desc: "Your collections & files" },
+  { key: "search", label: "Search", icon: SearchIcon, href: "/search" as const, desc: "Semantic search across everything" },
 ];
 
 export function TopBar() {
@@ -89,20 +92,26 @@ export function TopBar() {
     router.push(`/search?${params.toString()}`);
   }
 
+  const [domainOpen, setDomainOpen] = useState(false);
   const DomainIcon = domain.icon;
   const domainChip = (
-    <DropdownMenu>
-      <DropdownMenuTrigger render={<span />}>
-        <DomainChip icon={DomainIcon} label={domain.label} />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-44">
-        {DOMAINS.map((d) => (
-          <DropdownMenuItem key={d.key} render={<Link href={d.href} />}>
-            <d.icon className="size-4" /> {d.label}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DomainChip icon={DomainIcon} label={domain.label} onClick={() => setDomainOpen(true)} />
+      <Dialog open={domainOpen} onOpenChange={setDomainOpen}>
+        <DialogContent className="gap-4 sm:max-w-md">
+          <div className="text-base font-semibold">Go to</div>
+          <OptionPicker
+            options={DOMAINS.map((d) => ({ id: d.key, label: d.label, description: d.desc, icon: d.icon }))}
+            current={domain.key}
+            onSelect={(id) => {
+              setDomainOpen(false);
+              const d = DOMAINS.find((x) => x.key === id);
+              if (d) router.push(d.href);
+            }}
+          />
+        </DialogContent>
+      </Dialog>
+    </>
   );
 
   const userMenu = (
