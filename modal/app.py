@@ -74,7 +74,7 @@ def _l2norm(t):
 
 
 # ── Text: Qwen3-Embedding (text files, transcripts, text query) ───────────────
-@app.cls(gpu="L4", image=image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=300, min_containers=0)
+@app.cls(gpu="L4", image=image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=180, min_containers=0)
 class TextEmbedder:
     @modal.enter(snap=True)
     def load(self):
@@ -97,7 +97,7 @@ class TextEmbedder:
 
 
 # ── Image: SigLIP 2 (image files; text tower for image query) ─────────────────
-@app.cls(gpu="L4", image=image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=300, min_containers=0)
+@app.cls(gpu="L4", image=image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=180, min_containers=0)
 class ImageEmbedder:
     @modal.enter(snap=True)
     def load(self):
@@ -126,7 +126,7 @@ class ImageEmbedder:
 
 
 # ── Audio: CLAP (+ Whisper transcript) ────────────────────────────────────────
-@app.cls(gpu="T4", image=image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=300, min_containers=0)
+@app.cls(gpu="T4", image=image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=180, min_containers=0)
 class AudioEmbedder:
     @modal.enter(snap=True)
     def load(self):
@@ -187,7 +187,7 @@ class AudioEmbedder:
 
 
 # ── Video: X-CLIP (temporal; text tower for video query) ──────────────────────
-@app.cls(gpu="T4", image=image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=300, min_containers=0)
+@app.cls(gpu="T4", image=image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=180, min_containers=0)
 class VideoEmbedder:
     @modal.enter(snap=True)
     def load(self):
@@ -259,7 +259,7 @@ tagger_image = (
 
 # No memory snapshot for the tagger: RAM++'s Xet-cache writes make snapshot restore
 # fail. Weight load is only ~2s from the Volume, so plain cold start is fine.
-@app.cls(gpu="T4", image=tagger_image, volumes={CACHE: _cache}, scaledown_window=300, min_containers=0)
+@app.cls(gpu="T4", image=tagger_image, volumes={CACHE: _cache}, scaledown_window=180, min_containers=0)
 class ImageTagger:
     @modal.enter()
     def load(self):
@@ -298,4 +298,65 @@ class ImageTagger:
             english = res[0] if isinstance(res, (tuple, list)) else res
             tags = sorted({t.strip().lower() for t in str(english).split("|") if t.strip()})
             out.append({"caption": "", "tags": tags})
+        return out
+
+
+# ── Faces: InsightFace (detection + ArcFace embeddings → the people graph) ─────
+# Own image (onnxruntime, no transformers). Models (~300MB, buffalo_l pack) cache
+# in the Volume. No memory snapshot — onnxruntime + small models cold-load fast.
+face_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .apt_install("libgl1", "libglib2.0-0")  # opencv runtime libs
+    .pip_install(
+        "insightface",
+        "onnxruntime-gpu",
+        "opencv-python-headless",
+        "pillow",
+        "numpy<2",
+        "hf-transfer",
+        "huggingface-hub",
+    )
+    .env({"INSIGHTFACE_HOME": CACHE, "HF_HOME": CACHE})
+)
+
+
+@app.cls(gpu="T4", image=face_image, volumes={CACHE: _cache}, scaledown_window=180, min_containers=0)
+class FaceDetector:
+    @modal.enter()
+    def load(self):
+        from insightface.app import FaceAnalysis
+
+        self.app = FaceAnalysis(
+            name="buffalo_l",
+            root=CACHE,
+            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+        )
+        self.app.prepare(ctx_id=0, det_size=(640, 640))
+
+    @modal.method()
+    def detect(self, images: list[bytes]) -> list[list[dict]]:
+        """Per image → [{bbox:[x1,y1,x2,y2], score, embedding:[512]}] (normed ArcFace).
+        The embeddings feed the per-face vector space; the boxes let the UI highlight
+        and, later, cluster + name people."""
+        import cv2
+        import numpy as np
+
+        out = []
+        for b in images:
+            arr = cv2.imdecode(np.frombuffer(b, np.uint8), cv2.IMREAD_COLOR)
+            if arr is None:
+                out.append([])
+                continue
+            faces = self.app.get(arr)
+            out.append(
+                [
+                    {
+                        "bbox": [float(x) for x in f.bbox.tolist()],
+                        "score": float(f.det_score),
+                        "embedding": [float(x) for x in f.normed_embedding.tolist()],
+                    }
+                    for f in faces
+                    if float(f.det_score) >= 0.5
+                ]
+            )
         return out

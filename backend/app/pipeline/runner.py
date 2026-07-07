@@ -183,8 +183,27 @@ async def _embed(session, f: File) -> None:
             vec = (await emb.embed_image([data]))[0]
             await vector_store.upsert("image", [_point(vec, base, segment="image", text=f.name)])
 
+        async def _faces() -> None:
+            faces = (await emb.detect_faces([data]))[0]
+            if not faces:
+                f.meta = {**f.meta, "face_count": 0}
+                base["meta"] = f.meta
+                return
+            # One point per face in the `face` space (vector = ArcFace embedding),
+            # carrying its box so the UI can highlight it and clustering can name it.
+            pts = [
+                _point(fc["embedding"], base, segment=f"face-{i}", bbox=fc["bbox"], face_score=fc["score"])
+                for i, fc in enumerate(faces)
+                if fc.get("embedding")
+            ]
+            f.meta = {**f.meta, "face_count": len(pts), "faces": [{"bbox": fc["bbox"]} for fc in faces]}
+            base["meta"] = f.meta
+            if pts:
+                await vector_store.upsert("face", pts)
+
         await step("image.objects", "objects", _objects)
         await step("image.description", "image", _visual)
+        await step("image.faces", "faces", _faces)
 
     elif f.modality is Modality.audio:
         async def _sound() -> None:

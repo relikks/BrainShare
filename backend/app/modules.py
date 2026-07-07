@@ -45,6 +45,12 @@ MODULES: dict[str, dict] = {
         "desc": "Detect objects (RAM++) for object-level image search.",
         "modalities": ["image"],
     },
+    "faces": {
+        "default": True,
+        "label": "Face detection",
+        "desc": "Detect and embed faces (InsightFace) to find and group people.",
+        "modalities": ["image"],
+    },
     "ocr": {
         "default": False,
         "label": "OCR (image → text)",

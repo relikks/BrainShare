@@ -35,6 +35,9 @@ SPACES: dict[str, Space] = {
     "video": Space("video", "microsoft/xclip-base-patch32", 512, "embed_video"),
     # RAM++ tags, embedded with the text model (object-level image search).
     "image_objects": Space("image_objects", "Qwen/Qwen3-Embedding-4B", 2560, "embed_text"),
+    # Per-face ArcFace embeddings (InsightFace) — many points per image, one per face.
+    # Not in MODALITY_SPACES: searched by-example (a face), not by NL query.
+    "face": Space("face", "insightface/buffalo_l", 512, "detect_faces"),
 }
 
 # Where a FILE of each modality writes its vectors (text = transcript for a/v).

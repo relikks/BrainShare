@@ -40,6 +40,9 @@ class Embedder(ABC):
     @abstractmethod
     async def describe_image(self, images: list[bytes]) -> list[dict]: ...
     # describe_image → [{"caption": str, "tags": [str, ...]}] (RAM++ tags; caption unused)
+    @abstractmethod
+    async def detect_faces(self, images: list[bytes]) -> list[list[dict]]: ...
+    # detect_faces → per image [{"bbox":[x1,y1,x2,y2], "score": float, "embedding":[512]}]
 
     async def query_vector(self, space: str, text: str) -> Vec:
         """Embed an NL query into a given space via that space's text tower."""
@@ -104,6 +107,13 @@ class StubEmbedder(Embedder):
             for b in images
         ]
 
+    async def detect_faces(self, images: list[bytes]) -> list[list[dict]]:
+        # One deterministic pseudo-face per image so the wiring is testable offline.
+        return [
+            [{"bbox": [0.0, 0.0, 1.0, 1.0], "score": 0.9, "embedding": _unit(b, 512)}]
+            for b in images
+        ]
+
 
 class ModalEmbedder(Embedder):
     """Calls the deployed Modal model classes by name (token in ~/.modal.toml/env)."""
@@ -146,6 +156,9 @@ class ModalEmbedder(Embedder):
 
     async def describe_image(self, images: list[bytes]) -> list[dict]:
         return await self._cls("ImageTagger").describe.remote.aio(images)
+
+    async def detect_faces(self, images: list[bytes]) -> list[list[dict]]:
+        return await self._cls("FaceDetector").detect.remote.aio(images)
 
 
 @lru_cache(maxsize=1)
