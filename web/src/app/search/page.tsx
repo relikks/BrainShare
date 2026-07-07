@@ -25,6 +25,7 @@ import {
   Library,
   Music,
   Sparkles,
+  Tag,
   Video,
   X,
 } from "lucide-react";
@@ -33,7 +34,15 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { FilePreviewDialog } from "@/components/FileViewer";
 import { metaFieldsFor, toMetaFilters } from "@/components/MetaFilterBar";
-import { browse, fileBlobUrl, getFile, getPipelines, listCollections, search } from "@/lib/api";
+import {
+  browse,
+  fileBlobUrl,
+  getCollectionTags,
+  getFile,
+  getPipelines,
+  listCollections,
+  search,
+} from "@/lib/api";
 import { getUuid } from "@/lib/config";
 import {
   MODALITIES,
@@ -94,6 +103,9 @@ function Filters({
   collectionOptions,
   selectedCollections,
   onCollectionsChange,
+  tagOptions,
+  selectedTags,
+  onTagsChange,
 }: {
   typeFields: FilterFieldDef[];
   state: FilterBarState;
@@ -104,6 +116,9 @@ function Filters({
   collectionOptions: ScopeOption[];
   selectedCollections: string[];
   onCollectionsChange: (ids: string[]) => void;
+  tagOptions: ScopeOption[];
+  selectedTags: string[];
+  onTagsChange: (ids: string[]) => void;
 }) {
   const hidden = useHideOnScroll(true);
   return (
@@ -137,6 +152,21 @@ function Filters({
           ))}
         </div>
       </div>
+
+      {/* Object tags — pick from the tags that actually exist in the current scope. */}
+      {tagOptions.length > 0 && (
+        <ScopePicker
+          options={tagOptions}
+          selected={selectedTags}
+          onChange={onTagsChange}
+          layout="chips"
+          icon={<Tag className="size-4" />}
+          title="Tags"
+          anyLabel="Any tag"
+          modalTitle="Filter by object tags"
+          searchPlaceholder="Search tags…"
+        />
+      )}
 
       {scoped && (
         <div>
@@ -247,18 +277,29 @@ function SearchView() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [collections, setCollections] = useState<Collection[]>([]);
   const [scopeCids, setScopeCids] = useState<string[]>([]); // [] = any collection
+  const [tagCounts, setTagCounts] = useState<{ tag: string; count: number }[]>([]);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
   const typeFields = useMemo(() => buildTypeFields(catalog), [catalog]);
   const collectionOptions = useMemo<ScopeOption[]>(
     () => collections.map((c) => ({ id: c.id, label: c.name })),
     [collections],
   );
+  const tagOptions = useMemo<ScopeOption[]>(
+    () => tagCounts.map((t) => ({ id: t.tag, label: `${t.tag} (${t.count})`, keywords: t.tag })),
+    [tagCounts],
+  );
 
   // Empty-means-all: unchecked types behave as if every type were checked.
   const checkedMods = MODALITIES.filter((m) => filterState[`type.${m}`]?.on);
   const mods = new Set<Modality>(checkedMods.length ? checkedMods : MODALITIES);
 
-  const metaFilters = toMetaFilters(filterState, mods);
+  // Selected tags → an exact meta.tags filter (array-contains-any), on top of the
+  // type-aware metadata filters. Empty = no tag constraint.
+  const metaFilters = [
+    ...toMetaFilters(filterState, mods),
+    ...(selectedTags.length ? [{ field: "tags", op: "in" as const, value: selectedTags }] : []),
+  ];
   const labelOf = useMemo(
     () => Object.fromEntries(catalog.map((p) => [p.key, `${p.modality} · ${p.label.toLowerCase()}`])),
     [catalog],
@@ -277,6 +318,41 @@ function SearchView() {
   // What the search scopes to: a browsed folder's collection wins; otherwise the
   // ScopePicker selection ([] = every accessible collection).
   const searchCollectionIds = cid ? [cid] : scopeCids.length ? scopeCids : null;
+
+  // Load the tag catalogue for the collections in scope (merged) — a browsed folder
+  // scopes to its own subtree; otherwise the picked (or all) collections.
+  const tagScope = (searchCollectionIds ?? collections.map((c) => c.id)).join(",");
+  useEffect(() => {
+    const ids = tagScope ? tagScope.split(",") : [];
+    if (!ids.length || !getUuid()) {
+      setTagCounts([]);
+      return;
+    }
+    let active = true;
+    Promise.all(ids.map((id) => getCollectionTags(id, cid ? dir : null).catch(() => [])))
+      .then((lists) => {
+        if (!active) return;
+        const merged = new Map<string, number>();
+        for (const list of lists)
+          for (const { tag, count } of list) merged.set(tag, (merged.get(tag) ?? 0) + count);
+        setTagCounts(
+          [...merged].map(([tag, count]) => ({ tag, count })).sort((a, b) => b.count - a.count),
+        );
+      });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tagScope, cid, dir]);
+
+  // Drop selected tags that fall out of the current scope's catalogue.
+  useEffect(() => {
+    const avail = new Set(tagCounts.map((t) => t.tag));
+    setSelectedTags((prev) => {
+      const next = prev.filter((t) => avail.has(t));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [tagCounts]);
 
   // Resolve the scope's names (collection + folder path) for the scope row.
   useEffect(() => {
@@ -363,6 +439,9 @@ function SearchView() {
         collectionOptions={collectionOptions}
         selectedCollections={scopeCids}
         onCollectionsChange={setScopeCids}
+        tagOptions={tagOptions}
+        selectedTags={selectedTags}
+        onTagsChange={setSelectedTags}
       />
 
       <div className="min-w-0 flex-1 px-5 py-5">

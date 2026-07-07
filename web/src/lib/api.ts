@@ -133,6 +133,13 @@ export const search = (query: string, opts: SearchOpts = {}) =>
 // The static search-pipeline catalog (drives the filter bar's per-type sub-filters).
 export const getPipelines = () => req<{ pipelines: PipelineInfo[] }>("/pipelines");
 
+// Distinct object tags in a collection (optionally a folder subtree) — for the tag filter.
+export const getCollectionTags = (collectionId: string, directoryId?: string | null) =>
+  req<{ tag: string; count: number }[]>(
+    `/collections/${collectionId}/tags` +
+      (directoryId ? `?directory_id=${encodeURIComponent(directoryId)}` : ""),
+  );
+
 // ── per-collection AI modules ──
 export const getModules = (collectionId: string) =>
   req<{ modules: ModuleInfo[] }>(`/collections/${collectionId}/modules`);

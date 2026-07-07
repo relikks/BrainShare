@@ -52,6 +52,19 @@ async def list_in_dir(
     return list(res.all())
 
 
+async def list_for_tags(
+    session: AsyncSession, collection_id: str, directory_id: str | None
+) -> list[File]:
+    """Files whose tags feed the tag catalogue: the whole collection, or (when a
+    directory is given) that folder's subtree — matched via the descendants' ids."""
+    stmt = select(File).where(File.collection_id == collection_id)
+    if directory_id:
+        subtree = await dir_service.descendant_ids(session, collection_id, directory_id)
+        stmt = stmt.where(File.directory_id.in_(subtree))  # type: ignore[attr-defined]
+    res = await session.exec(stmt)
+    return list(res.all())
+
+
 async def create_file(
     session: AsyncSession,
     collection_id: str,

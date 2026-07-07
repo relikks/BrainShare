@@ -14,6 +14,7 @@ from ..dto import (
     ModuleInfo,
     ModulesOut,
     ModulesUpdate,
+    TagCount,
 )
 from ..models import Role
 from ..modules import MODULES, effective_modules
@@ -84,6 +85,28 @@ async def browse(
         directories=[DirectoryOut.model_validate(d) for d in dirs],
         files=[FileOut.model_validate(f) for f in files],
     )
+
+
+@router.get("/{collection_id}/tags", response_model=list[TagCount])
+async def collection_tags(
+    collection_id: str,
+    user: CurrentUser,
+    session: SessionDep,
+    directory_id: str | None = Query(default=None),
+) -> list[TagCount]:
+    """Distinct object tags (Florence, stored in file.meta.tags) across the collection —
+    or, when directory_id is given, that folder and its subtree. Feeds the tag-filter
+    modal so the user picks from tags that actually exist in scope."""
+    await require_member(session, user, collection_id)
+    files = await file_svc.list_for_tags(session, collection_id, directory_id)
+    counts: dict[str, int] = {}
+    for f in files:
+        for tag in (f.meta or {}).get("tags", []) or []:
+            counts[tag] = counts.get(tag, 0) + 1
+    return [
+        TagCount(tag=t, count=n)
+        for t, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
 
 
 @router.delete("/{collection_id}", status_code=204)

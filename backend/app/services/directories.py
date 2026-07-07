@@ -39,6 +39,21 @@ async def list_children(
     return list(res.all())
 
 
+async def descendant_ids(
+    session: AsyncSession, collection_id: str, directory_id: str
+) -> list[str]:
+    """`directory_id` plus every directory beneath it — via the materialized
+    ancestor_ids array (a dir is a descendant if its ancestors include this id)."""
+    rows = await session.exec(
+        select(Directory).where(Directory.collection_id == collection_id)
+    )
+    out = [directory_id]
+    for d in rows.all():
+        if directory_id in (d.ancestor_ids or []) and d.id != directory_id:
+            out.append(d.id)
+    return out
+
+
 async def breadcrumb(
     session: AsyncSession, collection_name: str, directory: Directory | None
 ) -> list[dict]:

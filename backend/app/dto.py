@@ -150,6 +150,11 @@ class ModulesUpdate(BaseModel):
     modules: dict[str, bool]  # module name → enabled override
 
 
+class TagCount(BaseModel):
+    tag: str
+    count: int
+
+
 # ── Search pipelines (static catalog) ──
 class PipelineInfo(BaseModel):
     key: str
