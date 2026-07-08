@@ -1,9 +1,14 @@
 "use client";
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@drekis/shader";
+import { Button, Dialog, DialogContent, DialogHeader, DialogTitle } from "@drekis/shader";
+import { Tag, Users } from "lucide-react";
+import type { Route } from "next";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { type FileFace, getFileFaces } from "@/lib/api";
 import { getEndpoint, getUuid } from "@/lib/config";
+import { faceColor } from "@/lib/person";
 import type { FileItem } from "@/lib/types";
 
 /** Fetch a file's bytes (auth'd) → Blob. The backend serves `/files/{id}/content` with the right
@@ -68,9 +73,7 @@ export function FileViewer({ file }: { file: FileItem }) {
 
   const frame = "rounded-lg border border-border bg-muted/20 overflow-hidden";
 
-  if (file.modality === "image")
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img src={url!} alt={file.name} className={`${frame} mx-auto max-h-[72vh] w-auto object-contain`} />;
+  if (file.modality === "image") return <ImageView file={file} url={url!} frame={frame} />;
 
   if (file.modality === "video")
     return <video src={url!} controls className={`${frame} mx-auto max-h-[72vh] w-full bg-black`} />;
@@ -102,6 +105,99 @@ export function FileViewer({ file }: { file: FileItem }) {
       >
         Descargar {file.name}
       </a>
+    </div>
+  );
+}
+
+/** Image view with optional people overlay (coloured face boxes → person profile) and
+ *  clickable object tags (→ search for that object). */
+function ImageView({ file, url, frame }: { file: FileItem; url: string; frame: string }) {
+  const router = useRouter();
+  const [showPeople, setShowPeople] = useState(false);
+  const [faces, setFaces] = useState<FileFace[] | null>(null);
+  const [nat, setNat] = useState<{ w: number; h: number } | null>(null);
+  const tags = Array.isArray(file.meta?.tags) ? (file.meta.tags as string[]) : [];
+  const namedCount = faces?.filter((f) => f.person_id).length ?? 0;
+
+  useEffect(() => {
+    if (showPeople && faces === null) getFileFaces(file.id).then(setFaces).catch(() => setFaces([]));
+  }, [showPeople, file.id, faces]);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          variant={showPeople ? "primary" : "outline"}
+          onClick={() => setShowPeople((v) => !v)}
+        >
+          <Users className="size-4" /> People
+          {faces ? ` (${namedCount})` : ""}
+        </Button>
+        {tags.length > 0 && (
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Tag className="size-3.5" /> {tags.length} objects
+          </span>
+        )}
+      </div>
+
+      <div className="relative mx-auto w-fit">
+        {/* biome-ignore lint/nursery/noImgElement: object-url preview */}
+        <img
+          src={url}
+          alt={file.name}
+          onLoad={(e) => setNat({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+          className={`${frame} block max-h-[64vh] w-auto object-contain`}
+        />
+        {showPeople &&
+          nat &&
+          faces?.map((f) => {
+            const [x1, y1, x2, y2] = f.bbox;
+            if (x2 <= x1 || y2 <= y1) return null;
+            const color = faceColor(f.person_id, f.person_color);
+            return (
+              <button
+                key={f.id}
+                type="button"
+                disabled={!f.person_id}
+                onClick={() => f.person_id && router.push(`/people?person=${f.person_id}` as Route)}
+                title={f.person_name ?? "Unknown"}
+                style={{
+                  left: `${(x1 / nat.w) * 100}%`,
+                  top: `${(y1 / nat.h) * 100}%`,
+                  width: `${((x2 - x1) / nat.w) * 100}%`,
+                  height: `${((y2 - y1) / nat.h) * 100}%`,
+                  borderColor: color,
+                }}
+                className="absolute rounded border-2 transition-[box-shadow] enabled:cursor-pointer enabled:hover:shadow-[0_0_0_3px_rgba(0,0,0,0.15)]"
+              >
+                {f.person_name && (
+                  <span
+                    className="absolute -top-5 left-0 max-w-32 truncate rounded px-1 py-0.5 text-[10px] font-medium text-white"
+                    style={{ backgroundColor: color }}
+                  >
+                    {f.person_name}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+      </div>
+
+      {tags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {tags.map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => router.push(`/search?tag=${encodeURIComponent(t)}` as Route)}
+              className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

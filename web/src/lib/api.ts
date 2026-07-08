@@ -164,6 +164,15 @@ export interface FaceCluster {
   faces: FaceOut[];
   count: number;
 }
+export interface FileFace {
+  id: string;
+  bbox: number[];
+  score: number;
+  person_id: string | null;
+  person_name: string | null;
+  person_color: string | null;
+}
+export const getFileFaces = (fileId: string) => req<FileFace[]>(`/files/${fileId}/faces`);
 
 export const listEntities = (kind?: EntityKind) =>
   req<EntityOut[]>(`/entities${kind ? `?kind=${kind}` : ""}`);

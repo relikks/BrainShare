@@ -195,6 +195,17 @@ class FaceInboxCluster(BaseModel):
     count: int
 
 
+class FileFace(BaseModel):
+    """A detected face in a file, with its named person (if any) for the overlay."""
+
+    id: str
+    bbox: list = []
+    score: float = 0.0
+    person_id: str | None = None
+    person_name: str | None = None
+    person_color: str | None = None
+
+
 class FaceAssign(BaseModel):
     face_ids: list[str]
     person_id: str | None = None  # assign to existing person…

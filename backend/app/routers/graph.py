@@ -5,6 +5,8 @@ Everything is user-scoped and consent-based — entities and their links exist o
 the user's own collections; there is no external lookup or stranger identification.
 """
 
+import random
+
 from fastapi import APIRouter, HTTPException, Query, Response, UploadFile
 from fastapi import File as FormFile
 from sqlmodel import delete, select
@@ -19,6 +21,7 @@ from ..dto import (
     FaceInboxCluster,
     FaceOut,
     FileEntitiesUpdate,
+    FileFace,
 )
 from ..models import Entity, EntityKind, Face, File, FileEntity
 from ..services.permissions import accessible_collection_ids, require_member
@@ -26,11 +29,27 @@ from ..storage import get_storage
 
 router = APIRouter(tags=["graph"])
 
+# Default per-person colour (for face-box overlays); each new person gets a random one.
+PERSON_COLORS = [
+    "#8b5cf6", "#6366f1", "#3b82f6", "#06b6d4", "#10b981", "#84cc16",
+    "#f59e0b", "#f97316", "#ef4444", "#ec4899", "#a855f7", "#14b8a6",
+]
+
+
+def _with_person_color(meta: dict | None) -> dict:
+    m = dict(meta or {})
+    if not m.get("color"):
+        m["color"] = random.choice(PERSON_COLORS)
+    return m
+
 
 # ── Entities (people / events / categories) ──────────────────────────────────
 @router.post("/entities", response_model=EntityOut, status_code=201)
 async def create_entity(payload: EntityCreate, user: CurrentUser, session: SessionDep) -> EntityOut:
-    e = Entity(owner_id=user.id, kind=payload.kind, name=payload.name.strip(), meta=payload.meta or {})
+    meta = payload.meta or {}
+    if payload.kind == "person":
+        meta = _with_person_color(meta)
+    e = Entity(owner_id=user.id, kind=payload.kind, name=payload.name.strip(), meta=meta)
     session.add(e)
     await session.commit()
     await session.refresh(e)
@@ -158,6 +177,33 @@ async def get_file_entities(file_id: str, user: CurrentUser, session: SessionDep
     return await _file_entities(session, f.id)
 
 
+@router.get("/files/{file_id}/faces", response_model=list[FileFace])
+async def get_file_faces(file_id: str, user: CurrentUser, session: SessionDep) -> list[FileFace]:
+    """Detected faces in a file with their named person (if any) — for the photo overlay.
+    Colours come from each person's own meta.color, so boxes match the People domain."""
+    f = await _accessible_file(session, user, file_id)
+    rows = (await session.exec(select(Face).where(Face.file_id == f.id))).all()
+    pids = {r.person_id for r in rows if r.person_id}
+    persons: dict[str, Entity] = {}
+    if pids:
+        for p in (await session.exec(select(Entity).where(Entity.id.in_(pids)))).all():
+            persons[p.id] = p
+    out: list[FileFace] = []
+    for r in rows:
+        p = persons.get(r.person_id) if r.person_id else None
+        out.append(
+            FileFace(
+                id=r.id,
+                bbox=r.bbox or [],
+                score=r.score,
+                person_id=r.person_id,
+                person_name=p.name if p else None,
+                person_color=(p.meta or {}).get("color") if p else None,
+            )
+        )
+    return out
+
+
 # ── Face inbox: cluster unnamed faces → assign to a person ────────────────────
 @router.get("/collections/{collection_id}/faces/inbox", response_model=list[FaceInboxCluster])
 async def face_inbox(
@@ -214,7 +260,12 @@ async def assign_faces(payload: FaceAssign, user: CurrentUser, session: SessionD
     else:
         if not payload.name or not payload.name.strip():
             raise HTTPException(400, "person_id or name required")
-        person = Entity(owner_id=user.id, kind=EntityKind.person, name=payload.name.strip())
+        person = Entity(
+            owner_id=user.id,
+            kind=EntityKind.person,
+            name=payload.name.strip(),
+            meta=_with_person_color(None),
+        )
         session.add(person)
         await session.flush()
 

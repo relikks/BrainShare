@@ -311,7 +311,10 @@ function SearchView() {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [scopeCids, setScopeCids] = useState<string[]>([]); // [] = any collection
   const [tagCounts, setTagCounts] = useState<{ tag: string; count: number }[]>([]);
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  // Seed the tag filter from ?tag=<t,t> (e.g. clicking an object in a photo).
+  const [selectedTags, setSelectedTags] = useState<string[]>(
+    () => (sp.get("tag") ?? "").split(",").filter(Boolean),
+  );
   const [people, setPeople] = useState<EntityOut[]>([]);
   // Seed the person filter from ?people=<id,id> (e.g. "Search this person" from a profile).
   const [selectedPeople, setSelectedPeople] = useState<string[]>(

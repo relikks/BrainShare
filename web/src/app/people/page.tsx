@@ -13,10 +13,10 @@ import {
   cn,
   toast,
 } from "@drekis/shader";
-import { Camera, Plus, Search as SearchIcon, Trash2, Users, X } from "lucide-react";
+import { Camera, Pencil, Plus, Search as SearchIcon, Trash2, Users, X } from "lucide-react";
 import type { Route } from "next";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { EntityBrowser } from "@/components/entity-browser";
 import { FilterShell } from "@/components/filter-shell";
 import { PersonAvatar } from "@/components/person-avatar";
@@ -30,6 +30,7 @@ import {
   uploadEntityPhoto,
 } from "@/lib/api";
 import { getUuid } from "@/lib/config";
+import { PERSON_PALETTE, personColor } from "@/lib/person";
 import { useView } from "@/lib/use-view";
 
 interface Field {
@@ -43,16 +44,37 @@ const LIST_COLS =
   "grid-cols-[1fr_36px] sm:grid-cols-[1fr_1.4fr_36px] md:grid-cols-[1fr_1.6fr_130px_36px]";
 
 export default function PeoplePage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading…</div>}>
+      <PeopleInner />
+    </Suspense>
+  );
+}
+
+function PeopleInner() {
   const [people, setPeople] = useState<EntityOut[]>([]);
   const [q, setQ] = useState("");
   const [view, setView] = useView("bs-people-view");
   const [editing, setEditing] = useState<EntityOut | null | "new">(null);
+  const sp = useSearchParams();
+  const wantPerson = sp.get("person");
+  const [consumedParam, setConsumedParam] = useState(false);
 
   const load = () => {
     if (!getUuid()) return;
     listEntities("person").then(setPeople).catch(() => setPeople([]));
   };
   useEffect(load, []);
+
+  // Deep-link: /people?person=<id> opens that person's profile once.
+  useEffect(() => {
+    if (consumedParam || !wantPerson) return;
+    const p = people.find((x) => x.id === wantPerson);
+    if (p) {
+      setEditing(p);
+      setConsumedParam(true);
+    }
+  }, [wantPerson, people, consumedParam]);
 
   const filtered = useMemo(
     () => people.filter((p) => p.name.toLowerCase().includes(q.trim().toLowerCase())),
@@ -171,30 +193,35 @@ export default function PeoplePage() {
             setEditing(null);
             load();
           }}
+          onRefresh={load}
         />
       )}
     </FilterShell>
   );
 }
 
-// ── create / edit dialog ──
+// ── profile view + edit dialog ──
 function PersonDialog({
   person,
   onClose,
   onSaved,
+  onRefresh,
 }: {
   person: EntityOut | null;
   onClose: () => void;
   onSaved: () => void;
+  onRefresh: () => void;
 }) {
+  const router = useRouter();
+  const [edit, setEdit] = useState(!person); // new → edit; existing → profile view
   const [name, setName] = useState(person?.name ?? "");
   const [description, setDescription] = useState(person ? metaDesc(person) : "");
   const [fields, setFields] = useState<Field[]>(person ? metaFields(person) : []);
+  const [color, setColor] = useState(person ? personColor(person) : PERSON_PALETTE[0]);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [removePhoto, setRemovePhoto] = useState(false);
   const [busy, setBusy] = useState(false);
   const photoInput = useRef<HTMLInputElement>(null);
-  const router = useRouter();
 
   const preview = photoFile ? URL.createObjectURL(photoFile) : null;
   useEffect(() => {
@@ -203,24 +230,29 @@ function PersonDialog({
     };
   }, [preview]);
   const showExisting = !photoFile && !removePhoto && Boolean(person?.meta?.photo_key);
+  // A live person-shaped object for the avatar/view, reflecting unsaved edits.
+  const viewPerson: EntityOut = { ...(person as EntityOut), name, meta: { ...person?.meta, color } };
 
   async function save() {
     if (!name.trim()) return;
     setBusy(true);
     try {
       const cleanFields = fields.filter((f) => f.label.trim() || f.value.trim());
-      const meta = {
-        ...(person?.meta ?? {}),
-        description: description.trim(),
-        fields: cleanFields,
-      };
+      const meta = { ...(person?.meta ?? {}), description: description.trim(), fields: cleanFields, color };
       const saved = person
         ? await updateEntity(person.id, { name: name.trim(), meta })
         : await createEntity("person", name.trim(), meta);
       if (photoFile) await uploadEntityPhoto(saved.id, photoFile);
       else if (removePhoto && person?.meta?.photo_key) await deleteEntityPhoto(saved.id);
       toast.success(person ? "Updated" : "Person added");
-      onSaved();
+      if (person) {
+        setEdit(false);
+        setPhotoFile(null);
+        setRemovePhoto(false);
+        onRefresh();
+      } else {
+        onSaved();
+      }
     } catch (e) {
       toast.error(String((e as Error).message));
     } finally {
@@ -232,139 +264,196 @@ function PersonDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent fullScreenOnMobile className="max-h-[85dvh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{person ? "Edit person" : "New person"}</DialogTitle>
+          <div className="flex items-center gap-2 pr-8">
+            <DialogTitle className="truncate">{person ? name : "New person"}</DialogTitle>
+            {person && !edit && (
+              <Button variant="ghost" size="sm" className="ml-auto shrink-0" onClick={() => setEdit(true)}>
+                <Pencil className="size-4" /> Edit
+              </Button>
+            )}
+          </div>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4">
-          {/* photo + name */}
-          <div className="flex items-center gap-4">
-            <div className="relative">
-              {preview ? (
-                // biome-ignore lint/nursery/noImgElement: local object-url preview
-                <img src={preview} alt="" className="size-16 rounded-full object-cover" />
-              ) : showExisting && person ? (
-                <PersonAvatar person={person} className="size-16 rounded-full text-xl" />
-              ) : (
-                <span className="flex size-16 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                  <Camera className="size-6" />
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => photoInput.current?.click()}
-                className="absolute -bottom-1 -right-1 flex size-7 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm hover:bg-muted"
-                aria-label="Change photo"
-              >
-                <Camera className="size-3.5" />
-              </button>
-              {(preview || showExisting) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPhotoFile(null);
-                    setRemovePhoto(true);
-                  }}
-                  className="absolute -right-1 -top-1 flex size-6 items-center justify-center rounded-full border border-border bg-background text-muted-foreground hover:text-destructive"
-                  aria-label="Remove photo"
-                >
-                  <X className="size-3.5" />
-                </button>
-              )}
+        {!edit && person ? (
+          // ── PROFILE ──
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col items-center gap-3 text-center">
+              <div className="relative">
+                <PersonAvatar person={viewPerson} className="size-24 rounded-full text-3xl" />
+                <span
+                  className="absolute bottom-1 right-1 size-4 rounded-full ring-2 ring-background"
+                  style={{ backgroundColor: color }}
+                />
+              </div>
+              {description && <p className="max-w-xs text-sm text-muted-foreground">{description}</p>}
             </div>
-            <input
-              ref={photoInput}
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) {
-                  setPhotoFile(f);
-                  setRemovePhoto(false);
-                }
-              }}
-            />
-            <div className="flex-1">
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">Name</label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
-            </div>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Description</label>
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="A short note about this person…"
-              rows={3}
-            />
-          </div>
-
-          {/* custom data fields */}
-          <div>
-            <div className="mb-1 flex items-center justify-between">
-              <label className="text-xs font-medium text-muted-foreground">Details</label>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setFields([...fields, { label: "", value: "" }])}
-              >
-                <Plus className="size-4" /> Add field
+            {fields.length > 0 && (
+              <dl className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+                {fields.map((f, i) => (
+                  <div key={`${f.label}-${i}`} className="flex justify-between gap-4 px-3 py-2 text-sm">
+                    <dt className="text-muted-foreground">{f.label}</dt>
+                    <dd className="text-right font-medium">{f.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+            <DialogFooter className="sm:justify-between">
+              <Button onClick={() => router.push(`/search?people=${person.id}` as Route)}>
+                <SearchIcon className="size-4" /> Search this person
               </Button>
-            </div>
-            <div className="flex flex-col gap-2">
-              {fields.map((f, i) => (
-                <div key={i} className="flex gap-2">
-                  <Input
-                    className="w-32"
-                    placeholder="Label"
-                    value={f.label}
-                    onChange={(e) =>
-                      setFields(fields.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))
-                    }
-                  />
-                  <Input
-                    className="flex-1"
-                    placeholder="Value"
-                    value={f.value}
-                    onChange={(e) =>
-                      setFields(fields.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))
-                    }
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="size-9 shrink-0 p-0"
-                    onClick={() => setFields(fields.filter((_, j) => j !== i))}
+              <Button variant="outline" onClick={onClose}>
+                Close
+              </Button>
+            </DialogFooter>
+          </div>
+        ) : (
+          // ── EDIT / NEW ──
+          <>
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  {preview ? (
+                    // biome-ignore lint/nursery/noImgElement: local object-url preview
+                    <img src={preview} alt="" className="size-16 rounded-full object-cover" />
+                  ) : showExisting && person ? (
+                    <PersonAvatar person={viewPerson} className="size-16 rounded-full text-xl" />
+                  ) : (
+                    <span className="flex size-16 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                      <Camera className="size-6" />
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => photoInput.current?.click()}
+                    className="absolute -bottom-1 -right-1 flex size-7 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm hover:bg-muted"
+                    aria-label="Change photo"
                   >
-                    <Trash2 className="size-4" />
+                    <Camera className="size-3.5" />
+                  </button>
+                  {(preview || showExisting) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPhotoFile(null);
+                        setRemovePhoto(true);
+                      }}
+                      className="absolute -right-1 -top-1 flex size-6 items-center justify-center rounded-full border border-border bg-background text-muted-foreground hover:text-destructive"
+                      aria-label="Remove photo"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  )}
+                </div>
+                <input
+                  ref={photoInput}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) {
+                      setPhotoFile(f);
+                      setRemovePhoto(false);
+                    }
+                  }}
+                />
+                <div className="flex-1">
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Name</label>
+                  <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">Description</label>
+                <Textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="A short note about this person…"
+                  rows={3}
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-xs font-medium text-muted-foreground">Colour</label>
+                <div className="flex flex-wrap items-center gap-2">
+                  {PERSON_PALETTE.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      aria-label={c}
+                      onClick={() => setColor(c)}
+                      className={cn(
+                        "size-6 rounded-full transition-transform hover:scale-110",
+                        color === c && "ring-2 ring-foreground ring-offset-2 ring-offset-background",
+                      )}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                  <label className="relative size-6 cursor-pointer overflow-hidden rounded-full border border-border">
+                    <span
+                      className="absolute inset-0"
+                      style={{ background: "conic-gradient(red, orange, yellow, lime, cyan, blue, magenta, red)" }}
+                    />
+                    <input
+                      type="color"
+                      value={color}
+                      onChange={(e) => setColor(e.target.value)}
+                      className="absolute inset-0 cursor-pointer opacity-0"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <label className="text-xs font-medium text-muted-foreground">Details</label>
+                  <Button variant="ghost" size="sm" onClick={() => setFields([...fields, { label: "", value: "" }])}>
+                    <Plus className="size-4" /> Add field
                   </Button>
                 </div>
-              ))}
+                <div className="flex flex-col gap-2">
+                  {fields.map((f, i) => (
+                    <div key={i} className="flex gap-2">
+                      <Input
+                        className="w-32"
+                        placeholder="Label"
+                        value={f.label}
+                        onChange={(e) => setFields(fields.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+                      />
+                      <Input
+                        className="flex-1"
+                        placeholder="Value"
+                        value={f.value}
+                        onChange={(e) => setFields(fields.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="size-9 shrink-0 p-0"
+                        onClick={() => setFields(fields.filter((_, j) => j !== i))}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        <DialogFooter className="sm:justify-between">
-          {person ? (
-            <Button
-              variant="ghost"
-              onClick={() => router.push(`/search?people=${person.id}` as Route)}
-            >
-              <SearchIcon className="size-4" /> Search this person
-            </Button>
-          ) : (
-            <span />
-          )}
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose} disabled={busy}>
-              Cancel
-            </Button>
-            <Button onClick={save} disabled={busy || !name.trim()}>
-              {person ? "Save" : "Add person"}
-            </Button>
-          </div>
-        </DialogFooter>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => (person ? setEdit(false) : onClose())}
+                disabled={busy}
+              >
+                Cancel
+              </Button>
+              <Button onClick={save} disabled={busy || !name.trim()}>
+                {person ? "Save" : "Add person"}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );
