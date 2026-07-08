@@ -3,26 +3,19 @@
 import {
   AppTopBar,
   Button,
-  Dialog,
-  DialogContent,
   DomainChip,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  OptionPicker,
   SearchBar,
-  cn,
 } from "@drekis/shader";
 import {
   Brain,
   ChevronDown,
-  FolderPlus,
-  HardDrive,
   Moon,
   Plus,
-  Search as SearchIcon,
   SlidersHorizontal,
   Sun,
   User,
@@ -32,13 +25,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createCollection } from "@/lib/api";
 import { getUsername } from "@/lib/config";
-
-// BrainShare "domains" — the two top-level modes. The chip shows the current one and
-// opens a menu to switch (the shared DomainChip pattern; CardForge opens a /domains page).
-const DOMAINS = [
-  { key: "drive", label: "Drive", icon: HardDrive, href: "/" as const, desc: "Your collections & files" },
-  { key: "search", label: "Search", icon: SearchIcon, href: "/search" as const, desc: "Semantic search across everything" },
-];
+import { domainForPath } from "@/lib/domains";
 
 export function TopBar() {
   const router = useRouter();
@@ -63,7 +50,7 @@ export function TopBar() {
     localStorage.setItem("brainshare.theme", next ? "dark" : "light");
   }
 
-  const domain = pathname.startsWith("/search") ? DOMAINS[1] : DOMAINS[0];
+  const domain = domainForPath(pathname);
 
   function submit() {
     const v = term.trim();
@@ -92,26 +79,15 @@ export function TopBar() {
     router.push(`/search?${params.toString()}`);
   }
 
-  const [domainOpen, setDomainOpen] = useState(false);
   const DomainIcon = domain.icon;
+  // The chip opens the standardized /domains page (CardForge pattern), carrying which
+  // domain you're on so it lands highlighted.
   const domainChip = (
-    <>
-      <DomainChip icon={DomainIcon} label={domain.label} onClick={() => setDomainOpen(true)} />
-      <Dialog open={domainOpen} onOpenChange={setDomainOpen}>
-        <DialogContent className="gap-4 sm:max-w-md">
-          <div className="text-base font-semibold">Go to</div>
-          <OptionPicker
-            options={DOMAINS.map((d) => ({ id: d.key, label: d.label, description: d.desc, icon: d.icon }))}
-            current={domain.key}
-            onSelect={(id) => {
-              setDomainOpen(false);
-              const d = DOMAINS.find((x) => x.key === id);
-              if (d) router.push(d.href);
-            }}
-          />
-        </DialogContent>
-      </Dialog>
-    </>
+    <DomainChip
+      icon={DomainIcon}
+      label={domain.label}
+      onClick={() => router.push(`/domains?domain=${domain.id}`)}
+    />
   );
 
   const userMenu = (
@@ -142,7 +118,7 @@ export function TopBar() {
     </Button>
   );
 
-  const filterButton = domain.key === "search" ? (
+  const filterButton = domain.id === "search" ? (
     <Button
       variant="ghost"
       size="sm"

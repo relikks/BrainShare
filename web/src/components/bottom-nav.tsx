@@ -1,19 +1,22 @@
 "use client";
 
 import { MobileBottomNav, type BottomNavItem } from "@drekis/shader";
-import { HardDrive, Search, Settings } from "lucide-react";
 import Link from "next/link";
 import type { Route } from "next";
 import { usePathname } from "next/navigation";
+import { DOMAINS, domainForPath } from "@/lib/domains";
 
-/** Mobile bottom nav mirroring the primary areas — auto-hides on scroll (shader). */
+/** Mobile bottom nav mirroring the domains — auto-hides on scroll (shader). */
 export function BottomNav() {
   const pathname = usePathname();
-  const items: BottomNavItem[] = [
-    { key: "drive", label: "Drive", icon: HardDrive, href: "/", active: pathname === "/" || pathname.startsWith("/c/") },
-    { key: "search", label: "Search", icon: Search, href: "/search", active: pathname.startsWith("/search") },
-    { key: "settings", label: "Settings", icon: Settings, href: "/settings", active: pathname.startsWith("/settings") },
-  ];
+  const active = domainForPath(pathname).id;
+  const items: BottomNavItem[] = DOMAINS.map((d) => ({
+    key: d.id,
+    label: d.label,
+    icon: d.icon,
+    href: d.href,
+    active: d.id === active,
+  }));
   return (
     <MobileBottomNav
       items={items}

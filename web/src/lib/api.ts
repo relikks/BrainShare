@@ -140,6 +140,47 @@ export const getCollectionTags = (collectionId: string, directoryId?: string | n
       (directoryId ? `?directory_id=${encodeURIComponent(directoryId)}` : ""),
   );
 
+// ── knowledge graph: people / events / categories + face inbox ──
+export type EntityKind = "person" | "event" | "category";
+export interface EntityOut {
+  id: string;
+  kind: EntityKind;
+  name: string;
+  meta: Record<string, unknown>;
+  created_at: string;
+}
+export interface FaceOut {
+  id: string;
+  file_id: string;
+  collection_id: string;
+  bbox: number[];
+  score: number;
+  person_id: string | null;
+}
+export interface FaceCluster {
+  face_ids: string[];
+  faces: FaceOut[];
+  count: number;
+}
+
+export const listEntities = (kind?: EntityKind) =>
+  req<EntityOut[]>(`/entities${kind ? `?kind=${kind}` : ""}`);
+export const createEntity = (kind: EntityKind, name: string) =>
+  req<EntityOut>("/entities", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, name }),
+  });
+export const deleteEntity = (id: string) => req<void>(`/entities/${id}`, { method: "DELETE" });
+export const faceInbox = (collectionId: string) =>
+  req<FaceCluster[]>(`/collections/${collectionId}/faces/inbox`);
+export const assignFaces = (faceIds: string[], person: { person_id?: string; name?: string }) =>
+  req<EntityOut>("/faces/assign", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ face_ids: faceIds, ...person }),
+  });
+
 // ── per-collection AI modules ──
 export const getModules = (collectionId: string) =>
   req<{ modules: ModuleInfo[] }>(`/collections/${collectionId}/modules`);
