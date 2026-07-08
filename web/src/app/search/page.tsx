@@ -28,6 +28,7 @@ import {
   Music,
   Sparkles,
   Tag,
+  Users as UsersIcon,
   Video,
   X,
 } from "lucide-react";
@@ -43,7 +44,9 @@ import {
   getFile,
   getPipelines,
   listCollections,
+  listEntities,
   search,
+  type EntityOut,
 } from "@/lib/api";
 import { getUuid } from "@/lib/config";
 import {
@@ -104,6 +107,9 @@ type FilterProps = {
   collectionOptions: ScopeOption[];
   selectedCollections: string[];
   onCollectionsChange: (ids: string[]) => void;
+  peopleOptions: ScopeOption[];
+  selectedPeople: string[];
+  onPeopleChange: (ids: string[]) => void;
   tagOptions: ScopeOption[];
   selectedTags: string[];
   onTagsChange: (ids: string[]) => void;
@@ -137,6 +143,21 @@ function FiltersContent(p: FilterProps) {
           ))}
         </div>
       </div>
+
+      {/* People — restrict to files where a named person appears / is tagged. */}
+      {p.peopleOptions.length > 0 && (
+        <ScopePicker
+          options={p.peopleOptions}
+          selected={p.selectedPeople}
+          onChange={p.onPeopleChange}
+          layout="chips"
+          icon={<UsersIcon className="size-4" />}
+          title="People"
+          anyLabel="Anyone"
+          modalTitle="Filter by people"
+          searchPlaceholder="Search people…"
+        />
+      )}
 
       {/* Object tags — pick from the tags that actually exist in the current scope. */}
       {p.tagOptions.length > 0 && (
@@ -287,6 +308,12 @@ function SearchView() {
   const [scopeCids, setScopeCids] = useState<string[]>([]); // [] = any collection
   const [tagCounts, setTagCounts] = useState<{ tag: string; count: number }[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [people, setPeople] = useState<EntityOut[]>([]);
+  const [selectedPeople, setSelectedPeople] = useState<string[]>([]);
+  const peopleOptions = useMemo<ScopeOption[]>(
+    () => people.map((p) => ({ id: p.id, label: p.name })),
+    [people],
+  );
 
   const typeFields = useMemo(() => buildTypeFields(catalog), [catalog]);
   const collectionOptions = useMemo<ScopeOption[]>(
@@ -321,6 +348,9 @@ function SearchView() {
     listCollections()
       .then(setCollections)
       .catch(() => setCollections([]));
+    listEntities("person")
+      .then(setPeople)
+      .catch(() => setPeople([]));
   }, []);
 
   // What the search scopes to: a browsed folder's collection wins; otherwise the
@@ -399,12 +429,13 @@ function SearchView() {
       modalities: [...mods],
       pipelines: effectivePipes,
       collection_ids: searchCollectionIds,
+      entity_ids: selectedPeople.length ? selectedPeople : undefined,
       directory_id: dir,
       include_subdirs: subdirs,
       filters: metaFilters,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dir, subdirs, (searchCollectionIds ?? []).join(","), [...mods].sort().join(","), (effectivePipes ?? []).join(","), JSON.stringify(metaFilters)],
+    [dir, subdirs, (searchCollectionIds ?? []).join(","), selectedPeople.join(","), [...mods].sort().join(","), (effectivePipes ?? []).join(","), JSON.stringify(metaFilters)],
   );
 
   // The APPLIED request — what the search actually runs. Only "Apply filters" (and a new
@@ -467,6 +498,9 @@ function SearchView() {
     collectionOptions,
     selectedCollections: scopeCids,
     onCollectionsChange: setScopeCids,
+    peopleOptions,
+    selectedPeople,
+    onPeopleChange: setSelectedPeople,
     tagOptions,
     selectedTags,
     onTagsChange: setSelectedTags,

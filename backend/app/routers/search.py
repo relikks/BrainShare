@@ -11,12 +11,13 @@ so heterogeneous model score scales can't skew the blend.
 """
 
 from fastapi import APIRouter, HTTPException
+from sqlmodel import select
 
 from ..auth import CurrentUser
 from ..db import SessionDep
 from ..dto import Crumb, PipelineInfo, PipelinesOut, SearchHit, SearchQuery, SearchResults, Segment
 from ..embedding import PIPELINES, Pipeline, get_embedder, pipelines_for_modalities
-from ..models import Modality
+from ..models import FileEntity, Modality
 from ..services import directories as dir_svc
 from ..services.permissions import accessible_collection_ids
 from .. import vector_store
@@ -91,6 +92,19 @@ async def search(payload: SearchQuery, user: CurrentUser, session: SessionDep) -
     if not cids:
         return SearchResults(hits=[])
 
+    # Entity (person/event/category) scope: resolve the linked files up front and pass
+    # them as a file_id filter. Empty resolution → no results.
+    entity_file_ids: set[str] | None = None
+    if payload.entity_ids:
+        rows = (
+            await session.exec(
+                select(FileEntity.file_id).where(FileEntity.entity_id.in_(payload.entity_ids))
+            )
+        ).all()
+        entity_file_ids = set(rows)
+        if not entity_file_ids:
+            return SearchResults(hits=[])
+
     pipelines = _resolve_pipelines(payload)
     if not pipelines:
         return SearchResults(hits=[])
@@ -114,6 +128,7 @@ async def search(payload: SearchQuery, user: CurrentUser, session: SessionDep) -
             top_k=raw_limit,
             collection_ids=cids,
             modalities=[pipe.modality],
+            file_ids=entity_file_ids,
             ancestor_dir_id=ancestor_dir_id,
             directory_id=directory_id,
             meta_filters=payload.filters,

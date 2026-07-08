@@ -116,6 +116,7 @@ export async function fileBlobUrl(id: string): Promise<string> {
 export interface SearchOpts {
   modalities?: Modality[];
   pipelines?: string[]; // named search pipelines; omit = every pipeline of the modalities
+  entity_ids?: string[]; // restrict to files linked to these people/events/categories
   collection_ids?: string[] | null;
   directory_id?: string | null;
   include_subdirs?: boolean;

@@ -92,6 +92,7 @@ def _build_filter(
     collection_ids: Iterable[str] | None = None,
     modalities: Iterable[Modality] | None = None,
     file_id: str | None = None,
+    file_ids: Iterable[str] | None = None,
     ancestor_dir_id: str | None = None,
     directory_id: str | None = None,
     meta_filters: Iterable[Any] | None = None,
@@ -111,6 +112,9 @@ def _build_filter(
         )
     if file_id:
         must.append(models.FieldCondition(key="file_id", match=models.MatchValue(value=file_id)))
+    if file_ids is not None:
+        # Restrict to a specific set of files (e.g. those linked to a person).
+        must.append(models.FieldCondition(key="file_id", match=models.MatchAny(any=list(file_ids))))
     if ancestor_dir_id:
         # array-contains: matches points whose ancestor_dir_ids includes this id.
         must.append(
@@ -155,6 +159,7 @@ async def search(
     top_k: int,
     collection_ids: Iterable[str] | None = None,
     modalities: Iterable[Modality] | None = None,
+    file_ids: Iterable[str] | None = None,
     ancestor_dir_id: str | None = None,
     directory_id: str | None = None,
     meta_filters: Iterable[Any] | None = None,
@@ -163,6 +168,7 @@ async def search(
     flt = _build_filter(
         collection_ids=collection_ids,
         modalities=modalities,
+        file_ids=file_ids,
         ancestor_dir_id=ancestor_dir_id,
         directory_id=directory_id,
         meta_filters=meta_filters,

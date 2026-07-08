@@ -98,6 +98,8 @@ class SearchQuery(BaseModel):
     # pipeline of the selected modalities (legacy behaviour). Naming them narrows the
     # search to exactly those ways of looking — e.g. ["audio.transcript"].
     pipelines: list[str] | None = None
+    # Restrict to files linked to any of these entities (people / events / categories).
+    entity_ids: list[str] | None = None
     collection_ids: list[str] | None = None  # None = all accessible
     directory_id: str | None = None  # scope to a folder…
     include_subdirs: bool = True  # …and everything under it
