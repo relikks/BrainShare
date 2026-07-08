@@ -1,23 +1,36 @@
 "use client";
 
-import { cn, toast } from "@drekis/shader";
+import { type CalendarEvent, type CalendarView, EventCalendar, cn, toast } from "@drekis/shader";
 import { CalendarRange } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { EventDialog, type EventSlot } from "@/app/events/page";
-import { EventCalendar } from "@/components/event-calendar";
 import { FilterShell } from "@/components/filter-shell";
-import { type EntityOut, listEntities, updateEntity } from "@/lib/api";
+import { type EntityOut, deleteEntity, listEntities, updateEntity } from "@/lib/api";
 import { getUuid } from "@/lib/config";
-import { emeta } from "@/lib/events";
+import { emeta, eventColor, isAllDay } from "@/lib/events";
 
 type Editing = EntityOut | { slot: EventSlot } | null;
+
+const parse = (iso: string): Date | null => {
+  if (!iso) return null;
+  const d = new Date(iso.includes("T") ? iso : `${iso}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+const toMeta = (d: Date, allDay: boolean): string => {
+  const p = (n: number) => String(n).padStart(2, "0");
+  const date = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  return allDay ? date : `${date}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
 
 export default function CalendarPage() {
   const [events, setEvents] = useState<EntityOut[]>([]);
   const [types, setTypes] = useState<EntityOut[]>([]);
   const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<Editing>(null);
+  const [view, setView] = useState<CalendarView>("month");
+  const [date, setDate] = useState<Date | null>(null);
 
+  useEffect(() => setDate(new Date()), []);
   const load = () => {
     if (!getUuid()) return;
     listEntities("event").then(setEvents).catch(() => setEvents([]));
@@ -26,11 +39,25 @@ export default function CalendarPage() {
   useEffect(load, []);
 
   const typeById = useMemo(() => new Map(types.map((t) => [t.id, t])), [types]);
-  const shown = useMemo(
-    () =>
-      events.filter((e) => activeTypes.size === 0 || activeTypes.has(emeta(e, "event_type_id"))),
-    [events, activeTypes],
-  );
+
+  const calEvents: CalendarEvent[] = useMemo(() => {
+    const out: CalendarEvent[] = [];
+    for (const e of events) {
+      if (activeTypes.size > 0 && !activeTypes.has(emeta(e, "event_type_id"))) continue;
+      const start = parse(emeta(e, "start"));
+      if (!start) continue;
+      const t = typeById.get(emeta(e, "event_type_id"));
+      out.push({
+        id: e.id,
+        title: e.name,
+        start,
+        end: parse(emeta(e, "end") || emeta(e, "start")),
+        allDay: isAllDay(e),
+        color: t ? eventColor(t) : null,
+      });
+    }
+    return out;
+  }, [events, activeTypes, typeById]);
 
   const toggleType = (id: string) => {
     setActiveTypes((prev) => {
@@ -41,12 +68,31 @@ export default function CalendarPage() {
     });
   };
 
-  async function onEventChange(id: string, start: string, end: string, allDay: boolean) {
+  async function onMoveEvent(id: string, start: Date, end: Date | null, allDay: boolean) {
     const e = events.find((x) => x.id === id);
     if (!e) return;
     try {
-      await updateEntity(id, { name: e.name, meta: { ...e.meta, start, end, all_day: allDay } });
+      await updateEntity(id, {
+        name: e.name,
+        meta: {
+          ...e.meta,
+          start: toMeta(start, allDay),
+          end: toMeta(end ?? start, allDay),
+          all_day: allDay,
+        },
+      });
       toast.success("Event moved");
+    } catch (err) {
+      toast.error(String((err as Error).message));
+    } finally {
+      load();
+    }
+  }
+
+  async function onDeleteEvent(id: string) {
+    try {
+      await deleteEntity(id);
+      toast.success("Event deleted");
     } catch (err) {
       toast.error(String((err as Error).message));
     } finally {
@@ -101,19 +147,33 @@ export default function CalendarPage() {
       <div className="mb-4 flex items-center gap-2">
         <CalendarRange className="size-5 text-primary" />
         <h1 className="text-lg font-semibold tracking-tight">Calendar</h1>
-        <span className="text-sm text-muted-foreground">{shown.length}</span>
+        <span className="text-sm text-muted-foreground">{calEvents.length}</span>
       </div>
 
-      <EventCalendar
-        events={shown}
-        typeById={typeById}
-        onCreate={(slot) => setEditing({ slot })}
-        onEditEvent={(id) => {
-          const e = events.find((x) => x.id === id);
-          if (e) setEditing(e);
-        }}
-        onEventChange={onEventChange}
-      />
+      {date && (
+        <EventCalendar
+          events={calEvents}
+          view={view}
+          onViewChange={setView}
+          date={date}
+          onDateChange={setDate}
+          onCreate={(info) =>
+            setEditing({
+              slot: {
+                start: toMeta(info.start, info.allDay),
+                end: info.end ? toMeta(info.end, info.allDay) : undefined,
+                allDay: info.allDay,
+              },
+            })
+          }
+          onSelectEvent={(id) => {
+            const e = events.find((x) => x.id === id);
+            if (e) setEditing(e);
+          }}
+          onDeleteEvent={onDeleteEvent}
+          onMoveEvent={onMoveEvent}
+        />
+      )}
 
       {editing !== null && (
         <EventDialog

@@ -303,13 +303,37 @@ export function EventDialog({
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-          <Button onClick={save} disabled={busy || !name.trim()}>
-            {event ? "Save" : "Create event"}
-          </Button>
+        <DialogFooter className="sm:justify-between">
+          {event ? (
+            <Button
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await deleteEntity(event.id);
+                  toast.success("Event deleted");
+                  onSaved();
+                } catch (e) {
+                  toast.error(String((e as Error).message));
+                  setBusy(false);
+                }
+              }}
+            >
+              <Trash2 className="size-4" /> Delete
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button onClick={save} disabled={busy || !name.trim()}>
+              {event ? "Save" : "Create event"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
