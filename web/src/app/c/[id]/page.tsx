@@ -9,8 +9,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
   Button,
-  Card,
-  CardContent,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -18,38 +16,45 @@ import {
   DialogTrigger,
   EmptyState,
   Input,
+  ViewModeToggle,
   cn,
   toast,
   useHideOnScroll,
 } from "@drekis/shader";
 import {
   Cpu,
-  FileText,
   Folder,
   FolderPlus,
   FolderUp,
-  Image as ImageIcon,
-  Music,
+  Grid2x2,
+  LayoutGrid,
+  List,
   Trash2,
   Upload,
   UserPlus,
-  Video,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { type ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { FilePreviewDialog } from "@/components/FileViewer";
+import { FileThumb } from "@/components/file-thumb";
 import { ModulesDialog } from "@/components/ModulesDialog";
 import { addMember, browse, createDirectory, deleteFile, uploadFile } from "@/lib/api";
 import { getUuid } from "@/lib/config";
-import type { Browse, FileItem, Modality, Role } from "@/lib/types";
+import { fileKind, humanSize, shortDate } from "@/lib/filetype";
+import type { Browse, Directory, FileItem, Role } from "@/lib/types";
 
-const ICON: Record<Modality, typeof FileText> = {
-  text: FileText,
-  image: ImageIcon,
-  audio: Music,
-  video: Video,
-};
+type DriveView = "large" | "grid" | "list";
+const VIEW_OPTIONS = [
+  { value: "large" as const, icon: Grid2x2, label: "Large grid" },
+  { value: "grid" as const, icon: LayoutGrid, label: "Grid" },
+  { value: "list" as const, icon: List, label: "List" },
+];
+
+// Shared column template for the list view — collapses columns as the viewport narrows
+// so the header and every row stay in lockstep (name + trailing survive on mobile).
+const LIST_COLS =
+  "grid-cols-[1fr_36px] sm:grid-cols-[1fr_110px_90px_36px] md:grid-cols-[1fr_110px_90px_120px_36px]";
 
 function Browser() {
   const { id } = useParams<{ id: string }>();
@@ -63,8 +68,19 @@ function Browser() {
   const [preview, setPreview] = useState<FileItem | null>(null);
   const [modulesOpen, setModulesOpen] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
+  const [view, setView] = useState<DriveView>("grid");
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
+
+  // Remember the last chosen layout across visits.
+  useEffect(() => {
+    const saved = localStorage.getItem("bs-drive-view") as DriveView | null;
+    if (saved === "large" || saved === "grid" || saved === "list") setView(saved);
+  }, []);
+  const changeView = (v: DriveView) => {
+    setView(v);
+    localStorage.setItem("bs-drive-view", v);
+  };
 
   const load = () => {
     if (!getUuid()) return;
@@ -323,64 +339,38 @@ function Browser() {
           <Button variant="outline" size="sm" onClick={() => setModulesOpen(true)}>
             <Cpu className="size-4" /> Modules
           </Button>
+
+          <div className="ml-auto flex items-center gap-3">
+            <span className="hidden whitespace-nowrap text-xs text-muted-foreground sm:inline">
+              {data.directories.length} {data.directories.length === 1 ? "folder" : "folders"} ·{" "}
+              {data.files.length} {data.files.length === 1 ? "file" : "files"}
+            </span>
+            <ViewModeToggle value={view} onChange={changeView} options={VIEW_OPTIONS} />
+          </div>
         </div>
 
-        {/* folders */}
-        {data.directories.length > 0 && (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-            {data.directories.map((d) => (
-              <Link key={d.id} href={`/c/${id}?dir=${d.id}`}>
-                <Card className="transition-colors hover:border-primary">
-                  <CardContent className="flex items-center gap-2 p-3">
-                    <Folder className="size-5 text-primary" />
-                    <span className="truncate text-sm font-medium">{d.name}</span>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
-          </div>
-        )}
-
-        {/* files */}
         {data.files.length === 0 && data.directories.length === 0 ? (
           <EmptyState
             title="Empty folder"
             description="Upload files or create a subfolder to get started."
           />
+        ) : view === "list" ? (
+          <ListView
+            id={id}
+            dirs={data.directories}
+            files={data.files}
+            onOpen={setPreview}
+            onRemove={remove}
+          />
         ) : (
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {data.files.map((f) => {
-              const Icon = ICON[f.modality];
-              return (
-                <Card key={f.id} className="cursor-pointer transition-colors hover:border-primary">
-                  <CardContent
-                    className="flex items-center gap-3 p-3"
-                    onClick={() => setPreview(f)}
-                  >
-                    <Icon className="size-5 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">{f.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {f.modality} · {(f.size / 1024).toFixed(0)} KB
-                      </div>
-                    </div>
-                    {f.status === "pending" && <Badge variant="secondary">embedding…</Badge>}
-                    {f.status === "failed" && <Badge variant="destructive">failed</Badge>}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        remove(f);
-                      }}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
+          <GridView
+            id={id}
+            large={view === "large"}
+            dirs={data.directories}
+            files={data.files}
+            onOpen={setPreview}
+            onRemove={remove}
+          />
         )}
       </div>
 
@@ -392,6 +382,193 @@ function Browser() {
         onClose={() => setModulesOpen(false)}
       />
     </div>
+  );
+}
+
+// ── status pill shared by both views ──
+function StatusBadge({ status }: { status: FileItem["status"] }) {
+  if (status === "pending") return <Badge variant="secondary">embedding…</Badge>;
+  if (status === "failed") return <Badge variant="destructive">failed</Badge>;
+  return null;
+}
+
+interface ViewProps {
+  id: string;
+  dirs: Directory[];
+  files: FileItem[];
+  onOpen: (f: FileItem) => void;
+  onRemove: (f: FileItem) => void;
+}
+
+// ── grid / large-grid: Folders then Files as preview cards ──
+function GridView({ id, large, dirs, files, onOpen, onRemove }: ViewProps & { large: boolean }) {
+  const folderCols = large
+    ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
+    : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6";
+  const fileCols = large
+    ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+    : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6";
+  return (
+    <div className="space-y-6">
+      {dirs.length > 0 && (
+        <section>
+          <SectionLabel>Folders</SectionLabel>
+          <div className={cn("grid gap-2.5", folderCols)}>
+            {dirs.map((d) => (
+              <Link key={d.id} href={`/c/${id}?dir=${d.id}`}>
+                <div className="flex items-center gap-2.5 rounded-lg border border-border bg-card p-3 transition-colors hover:border-primary">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <Folder className="size-5" />
+                  </span>
+                  <span className="truncate text-sm font-medium">{d.name}</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {files.length > 0 && (
+        <section>
+          <SectionLabel>Files</SectionLabel>
+          <div className={cn("grid gap-2.5", fileCols)}>
+            {files.map((f) => {
+              const kind = fileKind(f);
+              return (
+                <div
+                  key={f.id}
+                  onClick={() => onOpen(f)}
+                  className="group relative flex cursor-pointer flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-primary"
+                >
+                  <FileThumb file={f} className={cn("w-full", large ? "aspect-[16/10]" : "aspect-square")} />
+                  <div className="flex items-center gap-2 border-t border-border/60 p-2.5">
+                    <span
+                      className={cn(
+                        "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide",
+                        kind.badge,
+                      )}
+                    >
+                      {kind.ext}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">{f.name}</div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {kind.label} · {humanSize(f.size)}
+                      </div>
+                    </div>
+                  </div>
+                  {f.status !== "ready" && (
+                    <div className="absolute left-2 top-2">
+                      <StatusBadge status={f.status} />
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    aria-label={`Delete ${f.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemove(f);
+                    }}
+                    className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-md bg-background/80 text-muted-foreground opacity-0 backdrop-blur transition hover:text-destructive group-hover:opacity-100"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+// ── list: a compact table (name / type / size / modified) ──
+function ListView({ id, dirs, files, onOpen, onRemove }: ViewProps) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-border">
+      <div
+        className={cn(
+          "grid items-center gap-3 border-b border-border bg-muted/30 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground",
+          LIST_COLS,
+        )}
+      >
+        <span>Name</span>
+        <span className="hidden sm:block">Type</span>
+        <span className="hidden sm:block">Size</span>
+        <span className="hidden md:block">Modified</span>
+        <span />
+      </div>
+
+      {dirs.map((d) => (
+        <Link
+          key={d.id}
+          href={`/c/${id}?dir=${d.id}`}
+          className={cn(
+            "grid items-center gap-3 border-b border-border/50 px-4 py-2.5 text-sm transition-colors last:border-0 hover:bg-muted/40",
+            LIST_COLS,
+          )}
+        >
+          <span className="flex min-w-0 items-center gap-2.5">
+            <Folder className="size-4 shrink-0 text-primary" />
+            <span className="truncate font-medium">{d.name}</span>
+          </span>
+          <span className="hidden text-muted-foreground sm:block">Folder</span>
+          <span className="hidden text-muted-foreground sm:block">—</span>
+          <span className="hidden text-muted-foreground md:block">{shortDate(d.created_at)}</span>
+          <span />
+        </Link>
+      ))}
+
+      {files.map((f) => {
+        const kind = fileKind(f);
+        return (
+          <div
+            key={f.id}
+            onClick={() => onOpen(f)}
+            className={cn(
+              "group grid cursor-pointer items-center gap-3 border-b border-border/50 px-4 py-2.5 text-sm transition-colors last:border-0 hover:bg-muted/40",
+              LIST_COLS,
+            )}
+          >
+            <span className="flex min-w-0 items-center gap-2.5">
+              <span
+                className={cn(
+                  "shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wide",
+                  kind.badge,
+                )}
+              >
+                {kind.ext}
+              </span>
+              <span className="truncate font-medium">{f.name}</span>
+              <StatusBadge status={f.status} />
+            </span>
+            <span className="hidden text-muted-foreground sm:block">{kind.label}</span>
+            <span className="hidden text-muted-foreground sm:block">{humanSize(f.size)}</span>
+            <span className="hidden text-muted-foreground md:block">{shortDate(f.created_at)}</span>
+            <button
+              type="button"
+              aria-label={`Delete ${f.name}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove(f);
+              }}
+              className="flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition hover:text-destructive group-hover:opacity-100"
+            >
+              <Trash2 className="size-4" />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      {children}
+    </h3>
   );
 }
 
