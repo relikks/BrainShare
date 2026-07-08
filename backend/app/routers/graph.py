@@ -169,13 +169,47 @@ async def assign_faces(payload: FaceAssign, user: CurrentUser, session: SessionD
         await session.flush()
 
     accessible = set(await accessible_collection_ids(session, user))
-    faces = (await session.exec(select(Face).where(Face.id.in_(payload.face_ids)))).all()
+    faces = [
+        f
+        for f in (await session.exec(select(Face).where(Face.id.in_(payload.face_ids)))).all()
+        if f.collection_id in accessible
+    ]
+    if not faces:
+        await session.refresh(person)
+        return EntityOut.model_validate(person)
+
+    # Auto-pickup: also grab any OTHER unassigned faces (in the same collections) that
+    # match this person, so naming once catches every photo they appear in — no
+    # per-photo reclassifying. Match = cosine ≥0.5 against the assigned faces' centroid.
+    coll_ids = {f.collection_id for f in faces}
+    seed_vecs = await vector_store.get_vectors("face", [f.point_id for f in faces])
+    if seed_vecs:
+        dim = len(next(iter(seed_vecs.values())))
+        centroid = [sum(v[i] for v in seed_vecs.values()) / len(seed_vecs) for i in range(dim)]
+        norm = sum(x * x for x in centroid) ** 0.5 or 1.0
+        centroid = [x / norm for x in centroid]
+        others = (
+            await session.exec(
+                select(Face).where(
+                    Face.collection_id.in_(coll_ids),
+                    Face.person_id.is_(None),
+                    Face.id.notin_([f.id for f in faces]),
+                )
+            )
+        ).all()
+        cand_vecs = await vector_store.get_vectors("face", [o.point_id for o in others])
+        for o in others:
+            v = cand_vecs.get(o.point_id)
+            if v and sum(a * b for a, b in zip(v, centroid)) >= 0.5:
+                faces.append(o)
+
+    linked: set[str] = set()
     for face in faces:
-        if face.collection_id not in accessible:
-            continue
         face.person_id = person.id
         session.add(face)
-        # Link the face's file to the person (idempotent).
+        if face.file_id in linked:
+            continue
+        linked.add(face.file_id)
         exists = (
             await session.exec(
                 select(FileEntity).where(

@@ -10,8 +10,16 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from . import models  # noqa: F401 — ensure tables are registered on metadata
 from .config import settings
 
-# echo off; pool defaults fine for dev. For SQLite async, aiosqlite handles a file.
-engine = create_async_engine(settings.database_url, future=True)
+# Background ingest tasks each hold a session while their (slow, Modal-bound) embeds
+# run, so a burst of uploads can exhaust the default 5+10 pool. Give it generous room
+# and a longer checkout timeout so bulk/folder/zip uploads don't 500.
+engine = create_async_engine(
+    settings.database_url,
+    future=True,
+    pool_size=20,
+    max_overflow=40,
+    pool_timeout=60,
+)
 _session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
