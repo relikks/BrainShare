@@ -9,6 +9,7 @@ import {
   DialogTitle,
   Input,
   SearchBar,
+  Switch,
   Textarea,
   toast,
 } from "@drekis/shader";
@@ -24,26 +25,17 @@ import {
   updateEntity,
 } from "@/lib/api";
 import { getUuid } from "@/lib/config";
+import { emeta, eventColor, fmtWhen, isAllDay } from "@/lib/events";
 import { useView } from "@/lib/use-view";
 
-const str = (e: EntityOut, k: string): string => (typeof e.meta?.[k] === "string" ? (e.meta[k] as string) : "");
-const typeColor = (t?: EntityOut): string =>
-  t && typeof t.meta?.color === "string" ? (t.meta.color as string) : "var(--primary)";
-
-function fmtDate(iso: string): string {
-  if (!iso) return "";
-  const d = new Date(`${iso}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-function fmtRange(start: string, end: string): string {
-  if (!start && !end) return "No date";
-  if (start && end && start !== end) return `${fmtDate(start)} – ${fmtDate(end)}`;
-  return fmtDate(start || end);
+export interface EventSlot {
+  start: string;
+  end?: string;
+  allDay: boolean;
 }
 
 const LIST_COLS =
-  "grid-cols-[1fr_36px] sm:grid-cols-[1fr_130px_36px] md:grid-cols-[1fr_150px_170px_36px]";
+  "grid-cols-[1fr_36px] sm:grid-cols-[1fr_130px_36px] md:grid-cols-[1fr_150px_190px_36px]";
 
 export default function EventsPage() {
   const [events, setEvents] = useState<EntityOut[]>([]);
@@ -75,7 +67,7 @@ export default function EventsPage() {
     }
   }
 
-  const typeOf = (e: EntityOut) => typeById.get(str(e, "event_type_id"));
+  const typeOf = (e: EntityOut) => typeById.get(emeta(e, "event_type_id"));
 
   return (
     <FilterShell
@@ -116,16 +108,11 @@ export default function EventsPage() {
                 onClick={() => setEditing(e)}
                 className="flex min-w-0 items-center gap-2.5 text-left"
               >
-                <span
-                  className="size-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: typeColor(t) }}
-                />
+                <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: eventColor(t) }} />
                 <span className="truncate font-medium">{e.name}</span>
               </button>
               <span className="hidden truncate text-muted-foreground sm:block">{t?.name ?? "—"}</span>
-              <span className="hidden text-muted-foreground md:block">
-                {fmtRange(str(e, "start"), str(e, "end"))}
-              </span>
+              <span className="hidden text-muted-foreground md:block">{fmtWhen(e)}</span>
               <button
                 type="button"
                 aria-label={`Delete ${e.name}`}
@@ -144,29 +131,24 @@ export default function EventsPage() {
               onClick={() => setEditing(e)}
               className="group relative flex h-full cursor-pointer flex-col gap-2 overflow-hidden rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary"
             >
-              <span
-                className="absolute inset-y-0 left-0 w-1"
-                style={{ backgroundColor: typeColor(t) }}
-              />
+              <span className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: eventColor(t) }} />
               <div className="flex items-center gap-2 pl-1">
                 <span className="truncate text-sm font-semibold">{e.name}</span>
               </div>
-              <div className="pl-1 text-xs text-muted-foreground">
-                {fmtRange(str(e, "start"), str(e, "end"))}
-              </div>
+              <div className="pl-1 text-xs text-muted-foreground">{fmtWhen(e)}</div>
               {t && (
                 <span
                   className="ml-1 w-fit rounded-full px-2 py-0.5 text-[11px] font-medium"
                   style={{
-                    backgroundColor: `color-mix(in oklab, ${typeColor(t)} 18%, transparent)`,
-                    color: typeColor(t),
+                    backgroundColor: `color-mix(in oklab, ${eventColor(t)} 18%, transparent)`,
+                    color: eventColor(t),
                   }}
                 >
                   {t.name}
                 </span>
               )}
-              {large && str(e, "description") && (
-                <p className="line-clamp-3 pl-1 text-xs text-muted-foreground">{str(e, "description")}</p>
+              {large && emeta(e, "description") && (
+                <p className="line-clamp-3 pl-1 text-xs text-muted-foreground">{emeta(e, "description")}</p>
               )}
               <button
                 type="button"
@@ -199,35 +181,57 @@ export default function EventsPage() {
   );
 }
 
+const todayISO = () => {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+
 export function EventDialog({
   event,
   types,
-  defaultDate,
+  slot,
   onClose,
   onSaved,
 }: {
   event: EntityOut | null;
   types: EntityOut[];
-  defaultDate?: string;
+  slot?: EventSlot;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [name, setName] = useState(event?.name ?? "");
-  const [description, setDescription] = useState(event ? str(event, "description") : "");
-  const [start, setStart] = useState(event ? str(event, "start") : (defaultDate ?? ""));
-  const [end, setEnd] = useState(event ? str(event, "end") : (defaultDate ?? ""));
-  const [typeId, setTypeId] = useState(event ? str(event, "event_type_id") : "");
+  const [description, setDescription] = useState(event ? emeta(event, "description") : "");
+  const [allDay, setAllDay] = useState(event ? isAllDay(event) : (slot?.allDay ?? true));
+  const [start, setStart] = useState(event ? emeta(event, "start") : (slot?.start ?? todayISO()));
+  const [end, setEnd] = useState(
+    event ? emeta(event, "end") || emeta(event, "start") : (slot?.end ?? slot?.start ?? todayISO()),
+  );
+  const [typeId, setTypeId] = useState(event ? emeta(event, "event_type_id") : "");
   const [busy, setBusy] = useState(false);
+
+  function toggleAllDay(next: boolean) {
+    if (next) {
+      setStart((s) => s.slice(0, 10));
+      setEnd((e) => e.slice(0, 10));
+    } else {
+      setStart((s) => (s.includes("T") ? s : `${s.slice(0, 10)}T09:00`));
+      setEnd((e) => (e.includes("T") ? e : `${(e || start).slice(0, 10)}T10:00`));
+    }
+    setAllDay(next);
+  }
 
   async function save() {
     if (!name.trim()) return;
     setBusy(true);
     try {
+      const norm = (v: string) => (allDay ? v.slice(0, 10) : v);
       const meta = {
         ...(event?.meta ?? {}),
         description: description.trim(),
-        start,
-        end: end || start,
+        start: norm(start),
+        end: norm(end || start),
+        all_day: allDay,
         event_type_id: typeId,
       };
       if (event) await updateEntity(event.id, { name: name.trim(), meta });
@@ -240,6 +244,8 @@ export function EventDialog({
       setBusy(false);
     }
   }
+
+  const inputType = allDay ? "date" : "datetime-local";
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -254,14 +260,19 @@ export function EventDialog({
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Event name" />
           </div>
 
+          <label className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+            <span className="text-sm">All day</span>
+            <Switch checked={allDay} onCheckedChange={toggleAllDay} />
+          </label>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Start</label>
-              <Input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
+              <Input type={inputType} value={start} onChange={(e) => setStart(e.target.value)} />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">End</label>
-              <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
+              <Input type={inputType} value={end} onChange={(e) => setEnd(e.target.value)} />
             </div>
           </div>
 
