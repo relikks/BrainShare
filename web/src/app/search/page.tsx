@@ -313,7 +313,10 @@ function SearchView() {
   const [tagCounts, setTagCounts] = useState<{ tag: string; count: number }[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [people, setPeople] = useState<EntityOut[]>([]);
-  const [selectedPeople, setSelectedPeople] = useState<string[]>([]);
+  // Seed the person filter from ?people=<id,id> (e.g. "Search this person" from a profile).
+  const [selectedPeople, setSelectedPeople] = useState<string[]>(
+    () => (sp.get("people") ?? "").split(",").filter(Boolean),
+  );
   const [peopleMatch, setPeopleMatch] = useState<"any" | "all">("any");
   const peopleOptions = useMemo<ScopeOption[]>(
     () => people.map((p) => ({ id: p.id, label: p.name })),

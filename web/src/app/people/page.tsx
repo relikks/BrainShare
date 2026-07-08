@@ -13,7 +13,9 @@ import {
   cn,
   toast,
 } from "@drekis/shader";
-import { Camera, Plus, Trash2, Users, X } from "lucide-react";
+import { Camera, Plus, Search as SearchIcon, Trash2, Users, X } from "lucide-react";
+import type { Route } from "next";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EntityBrowser } from "@/components/entity-browser";
 import { FilterShell } from "@/components/filter-shell";
@@ -192,6 +194,7 @@ function PersonDialog({
   const [removePhoto, setRemovePhoto] = useState(false);
   const [busy, setBusy] = useState(false);
   const photoInput = useRef<HTMLInputElement>(null);
+  const router = useRouter();
 
   const preview = photoFile ? URL.createObjectURL(photoFile) : null;
   useEffect(() => {
@@ -342,13 +345,25 @@ function PersonDialog({
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-          <Button onClick={save} disabled={busy || !name.trim()}>
-            {person ? "Save" : "Add person"}
-          </Button>
+        <DialogFooter className="sm:justify-between">
+          {person ? (
+            <Button
+              variant="ghost"
+              onClick={() => router.push(`/search?people=${person.id}` as Route)}
+            >
+              <SearchIcon className="size-4" /> Search this person
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button onClick={save} disabled={busy || !name.trim()}>
+              {person ? "Save" : "Add person"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
