@@ -98,10 +98,20 @@ async def search(payload: SearchQuery, user: CurrentUser, session: SessionDep) -
     if payload.entity_ids:
         rows = (
             await session.exec(
-                select(FileEntity.file_id).where(FileEntity.entity_id.in_(payload.entity_ids))
+                select(FileEntity.file_id, FileEntity.entity_id).where(
+                    FileEntity.entity_id.in_(payload.entity_ids)
+                )
             )
         ).all()
-        entity_file_ids = set(rows)
+        if payload.entity_match == "all":
+            # File must be linked to EVERY selected entity (intersection).
+            per_file: dict[str, set[str]] = {}
+            for fid, eid in rows:
+                per_file.setdefault(fid, set()).add(eid)
+            need = set(payload.entity_ids)
+            entity_file_ids = {fid for fid, eids in per_file.items() if need <= eids}
+        else:
+            entity_file_ids = {fid for fid, _ in rows}
         if not entity_file_ids:
             return SearchResults(hits=[])
 

@@ -257,11 +257,12 @@ tagger_image = (
 )
 
 
-# No memory snapshot for the tagger: RAM++'s Xet-cache writes make snapshot restore
-# fail. Weight load is only ~2s from the Volume, so plain cold start is fine.
-@app.cls(gpu="T4", image=tagger_image, volumes={CACHE: _cache}, scaledown_window=180, min_containers=0)
+# Memory + GPU snapshot re-enabled now that HF_HUB_DISABLE_XET=1 stops the Xet cache
+# writes that broke snapshot restore — cold starts restore RAM++ from the snapshot in
+# seconds instead of reloading Swin-L weights.
+@app.cls(gpu="T4", image=tagger_image, volumes={CACHE: _cache}, enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True}, scaledown_window=180, min_containers=0)
 class ImageTagger:
-    @modal.enter()
+    @modal.enter(snap=True)
     def load(self):
         import torch
 

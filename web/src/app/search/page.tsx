@@ -110,6 +110,8 @@ type FilterProps = {
   peopleOptions: ScopeOption[];
   selectedPeople: string[];
   onPeopleChange: (ids: string[]) => void;
+  peopleMatch: "any" | "all";
+  onPeopleMatchChange: (m: "any" | "all") => void;
   tagOptions: ScopeOption[];
   selectedTags: string[];
   onTagsChange: (ids: string[]) => void;
@@ -144,12 +146,14 @@ function FiltersContent(p: FilterProps) {
         </div>
       </div>
 
-      {/* People — restrict to files where a named person appears / is tagged. */}
+      {/* People — restrict to files where a named person appears. Any (OR) / All (AND). */}
       {p.peopleOptions.length > 0 && (
         <ScopePicker
           options={p.peopleOptions}
           selected={p.selectedPeople}
           onChange={p.onPeopleChange}
+          matchMode={p.peopleMatch}
+          onMatchModeChange={p.onPeopleMatchChange}
           layout="chips"
           icon={<UsersIcon className="size-4" />}
           title="People"
@@ -310,6 +314,7 @@ function SearchView() {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [people, setPeople] = useState<EntityOut[]>([]);
   const [selectedPeople, setSelectedPeople] = useState<string[]>([]);
+  const [peopleMatch, setPeopleMatch] = useState<"any" | "all">("any");
   const peopleOptions = useMemo<ScopeOption[]>(
     () => people.map((p) => ({ id: p.id, label: p.name })),
     [people],
@@ -430,12 +435,13 @@ function SearchView() {
       pipelines: effectivePipes,
       collection_ids: searchCollectionIds,
       entity_ids: selectedPeople.length ? selectedPeople : undefined,
+      entity_match: peopleMatch,
       directory_id: dir,
       include_subdirs: subdirs,
       filters: metaFilters,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dir, subdirs, (searchCollectionIds ?? []).join(","), selectedPeople.join(","), [...mods].sort().join(","), (effectivePipes ?? []).join(","), JSON.stringify(metaFilters)],
+    [dir, subdirs, (searchCollectionIds ?? []).join(","), selectedPeople.join(","), peopleMatch, [...mods].sort().join(","), (effectivePipes ?? []).join(","), JSON.stringify(metaFilters)],
   );
 
   // The APPLIED request — what the search actually runs. Only "Apply filters" (and a new
@@ -501,6 +507,8 @@ function SearchView() {
     peopleOptions,
     selectedPeople,
     onPeopleChange: setSelectedPeople,
+    peopleMatch,
+    onPeopleMatchChange: setPeopleMatch,
     tagOptions,
     selectedTags,
     onTagsChange: setSelectedTags,

@@ -117,6 +117,7 @@ export interface SearchOpts {
   modalities?: Modality[];
   pipelines?: string[]; // named search pipelines; omit = every pipeline of the modalities
   entity_ids?: string[]; // restrict to files linked to these people/events/categories
+  entity_match?: "any" | "all"; // any = OR; all = AND (file must have every selected)
   collection_ids?: string[] | null;
   directory_id?: string | null;
   include_subdirs?: boolean;
