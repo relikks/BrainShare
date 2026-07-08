@@ -5,7 +5,8 @@ Everything is user-scoped and consent-based — entities and their links exist o
 the user's own collections; there is no external lookup or stranger identification.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response, UploadFile
+from fastapi import File as FormFile
 from sqlmodel import delete, select
 
 from .. import vector_store
@@ -21,6 +22,7 @@ from ..dto import (
 )
 from ..models import Entity, EntityKind, Face, File, FileEntity
 from ..services.permissions import accessible_collection_ids, require_member
+from ..storage import get_storage
 
 router = APIRouter(tags=["graph"])
 
@@ -63,12 +65,60 @@ async def rename_entity(
 @router.delete("/entities/{entity_id}", status_code=204)
 async def delete_entity(entity_id: str, user: CurrentUser, session: SessionDep) -> None:
     e = await _own_entity(session, user, entity_id)
+    key = (e.meta or {}).get("photo_key")
     await session.exec(delete(FileEntity).where(FileEntity.entity_id == entity_id))
     await session.exec(
         Face.__table__.update().where(Face.person_id == entity_id).values(person_id=None)
     )
     await session.delete(e)
     await session.commit()
+    if key:
+        await get_storage().delete(key)
+
+
+# ── Entity profile photo (person avatars, etc.) ───────────────────────────────
+@router.post("/entities/{entity_id}/photo", response_model=EntityOut)
+async def set_entity_photo(
+    entity_id: str,
+    user: CurrentUser,
+    session: SessionDep,
+    file: UploadFile = FormFile(...),
+) -> EntityOut:
+    """Store an entity's profile photo as a blob and record its key/mime in `meta`."""
+    e = await _own_entity(session, user, entity_id)
+    data = await file.read()
+    key = f"avatars/{e.id}"
+    await get_storage().put(key, data)
+    e.meta = {**(e.meta or {}), "photo_key": key, "photo_mime": file.content_type or "image/jpeg"}
+    session.add(e)
+    await session.commit()
+    await session.refresh(e)
+    return EntityOut.model_validate(e)
+
+
+@router.get("/entities/{entity_id}/photo")
+async def get_entity_photo(entity_id: str, user: CurrentUser, session: SessionDep) -> Response:
+    e = await _own_entity(session, user, entity_id)
+    key = (e.meta or {}).get("photo_key")
+    if not key:
+        raise HTTPException(404, "No photo")
+    data = await get_storage().get(key)
+    return Response(content=data, media_type=(e.meta or {}).get("photo_mime", "image/jpeg"))
+
+
+@router.delete("/entities/{entity_id}/photo", response_model=EntityOut)
+async def delete_entity_photo(
+    entity_id: str, user: CurrentUser, session: SessionDep
+) -> EntityOut:
+    e = await _own_entity(session, user, entity_id)
+    key = (e.meta or {}).get("photo_key")
+    if key:
+        await get_storage().delete(key)
+    e.meta = {k: v for k, v in (e.meta or {}).items() if k not in ("photo_key", "photo_mime")}
+    session.add(e)
+    await session.commit()
+    await session.refresh(e)
+    return EntityOut.model_validate(e)
 
 
 # ── File ↔ entity links ──────────────────────────────────────────────────────

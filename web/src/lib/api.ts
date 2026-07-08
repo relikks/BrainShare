@@ -142,8 +142,8 @@ export const getCollectionTags = (collectionId: string, directoryId?: string | n
       (directoryId ? `?directory_id=${encodeURIComponent(directoryId)}` : ""),
   );
 
-// ── knowledge graph: people / events / categories + face inbox ──
-export type EntityKind = "person" | "event" | "category";
+// ── knowledge graph: people / events / categories / event-types + face inbox ──
+export type EntityKind = "person" | "event" | "category" | "event_type";
 export interface EntityOut {
   id: string;
   kind: EntityKind;
@@ -167,13 +167,37 @@ export interface FaceCluster {
 
 export const listEntities = (kind?: EntityKind) =>
   req<EntityOut[]>(`/entities${kind ? `?kind=${kind}` : ""}`);
-export const createEntity = (kind: EntityKind, name: string) =>
+export const createEntity = (kind: EntityKind, name: string, meta?: Record<string, unknown>) =>
   req<EntityOut>("/entities", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kind, name }),
+    body: JSON.stringify({ kind, name, meta }),
+  });
+export const updateEntity = (
+  id: string,
+  patch: { name: string; meta?: Record<string, unknown> },
+) =>
+  req<EntityOut>(`/entities/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    // PATCH reuses EntityCreate; kind is ignored server-side on update.
+    body: JSON.stringify({ kind: "person", name: patch.name, meta: patch.meta }),
   });
 export const deleteEntity = (id: string) => req<void>(`/entities/${id}`, { method: "DELETE" });
+
+// ── entity profile photo ──
+export function uploadEntityPhoto(id: string, file: File): Promise<EntityOut> {
+  const fd = new FormData();
+  fd.append("file", file);
+  return req<EntityOut>(`/entities/${id}/photo`, { method: "POST", body: fd });
+}
+export const deleteEntityPhoto = (id: string) =>
+  req<EntityOut>(`/entities/${id}/photo`, { method: "DELETE" });
+export async function entityPhotoBlobUrl(id: string): Promise<string> {
+  const res = await fetch(getEndpoint() + `/entities/${id}/photo`, { headers: auth() });
+  if (!res.ok) throw await asError(res);
+  return URL.createObjectURL(await res.blob());
+}
 export const faceInbox = (collectionId: string) =>
   req<FaceCluster[]>(`/collections/${collectionId}/faces/inbox`);
 export const assignFaces = (faceIds: string[], person: { person_id?: string; name?: string }) =>

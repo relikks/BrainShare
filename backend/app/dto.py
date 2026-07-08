@@ -160,7 +160,7 @@ class TagCount(BaseModel):
 
 # ── Knowledge graph (people / events / categories + faces) ──
 class EntityCreate(BaseModel):
-    kind: Literal["person", "event", "category"] = "person"
+    kind: Literal["person", "event", "category", "event_type"] = "person"
     name: str
     meta: dict | None = None
 

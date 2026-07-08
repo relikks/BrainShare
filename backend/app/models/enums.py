@@ -32,3 +32,4 @@ class EntityKind(StrEnum):
     person = "person"
     event = "event"
     category = "category"
+    event_type = "event_type"
