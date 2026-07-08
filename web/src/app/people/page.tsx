@@ -227,7 +227,7 @@ function PersonDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-md">
+      <DialogContent fullScreenOnMobile className="max-h-[85dvh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{person ? "Edit person" : "New person"}</DialogTitle>
         </DialogHeader>

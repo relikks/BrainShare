@@ -116,7 +116,7 @@ export function FilePreviewDialog({ file, onClose }: { file: FileItem | null; on
         : `${Math.max(1, Math.round(file.size / 1024))} KB`;
   return (
     <Dialog open={!!file} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[92vh] max-w-4xl overflow-hidden">
+      <DialogContent fullScreenOnMobile className="max-h-[92vh] max-w-4xl overflow-hidden">
         {file ? (
           <>
             <DialogHeader>

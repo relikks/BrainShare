@@ -249,7 +249,7 @@ export function EventDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent fullScreenOnMobile className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{event ? "Edit event" : "New event"}</DialogTitle>
         </DialogHeader>

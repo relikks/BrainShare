@@ -1,7 +1,7 @@
 "use client";
 
-import { Button, EmptyState, SearchBar, toast } from "@drekis/shader";
-import { Inbox } from "lucide-react";
+import { Button, EmptyState, ScopePicker, SearchBar, toast } from "@drekis/shader";
+import { FolderOpen, Inbox } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FilterShell } from "@/components/filter-shell";
 import {
@@ -119,56 +119,51 @@ function ClusterCard({
 
 export default function ClassifyPage() {
   const [collections, setCollections] = useState<Collection[]>([]);
-  const [cid, setCid] = useState<string>("");
+  const [selectedCids, setSelectedCids] = useState<string[]>([]);
   const [clusters, setClusters] = useState<FaceCluster[] | null>(null);
   const [people, setPeople] = useState<EntityOut[]>([]);
-  const [q, setQ] = useState("");
 
   useEffect(() => {
     if (!getUuid()) return;
-    listCollections()
-      .then((cs) => {
-        setCollections(cs);
-        if (cs[0]) setCid((c) => c || cs[0].id);
-      })
-      .catch(() => {});
+    listCollections().then(setCollections).catch(() => {});
     listEntities("person").then(setPeople).catch(() => {});
   }, []);
 
-  const load = () => {
-    if (!cid) return;
-    setClusters(null);
-    faceInbox(cid).then(setClusters).catch(() => setClusters([]));
-  };
-  useEffect(load, [cid]);
-
-  const visibleCollections = useMemo(
-    () => collections.filter((c) => c.name.toLowerCase().includes(q.trim().toLowerCase())),
-    [collections, q],
+  // Empty selection = every collection (ScopePicker "Any" semantics).
+  const scopeCids = useMemo(
+    () => (selectedCids.length ? selectedCids : collections.map((c) => c.id)),
+    [selectedCids, collections],
   );
+
+  const load = () => {
+    if (!scopeCids.length) {
+      setClusters([]);
+      return;
+    }
+    setClusters(null);
+    Promise.all(scopeCids.map((id) => faceInbox(id).catch(() => [])))
+      .then((lists) => setClusters(lists.flat().sort((a, b) => b.count - a.count)))
+      .catch(() => setClusters([]));
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [scopeCids.join(",")]);
 
   return (
     <FilterShell
       filters={
         <div className="flex flex-col gap-3">
-          <div>
-            <span className="mb-1 block text-xs text-muted-foreground">Collection</span>
-            <SearchBar value={q} onValueChange={setQ} placeholder="Filter collections…" size="sm" />
-          </div>
-          <div className="flex flex-col gap-1">
-            {visibleCollections.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setCid(c.id)}
-                className={`truncate rounded-md px-2 py-1.5 text-left text-sm transition-colors ${
-                  c.id === cid ? "bg-primary/10 text-primary" : "hover:bg-muted"
-                }`}
-              >
-                {c.name}
-              </button>
-            ))}
-          </div>
+          <span className="text-xs text-muted-foreground">Collections</span>
+          <ScopePicker
+            icon={<FolderOpen className="size-4" />}
+            title="Collections"
+            anyLabel="All collections"
+            modalTitle="Choose collections"
+            searchPlaceholder="Search collections…"
+            layout="list"
+            options={collections.map((c) => ({ id: c.id, label: c.name }))}
+            selected={selectedCids}
+            onChange={setSelectedCids}
+          />
         </div>
       }
     >

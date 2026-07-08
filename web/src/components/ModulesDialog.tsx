@@ -46,7 +46,7 @@ export function ModulesDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-auto">
+      <DialogContent fullScreenOnMobile className="max-h-[90vh] max-w-lg overflow-auto">
         <DialogHeader>
           <DialogTitle className="text-base">AI modules</DialogTitle>
           <p className="text-xs text-muted-foreground">

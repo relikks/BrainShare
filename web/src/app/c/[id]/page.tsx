@@ -309,7 +309,7 @@ function Browser() {
             <DialogTrigger render={<Button variant="outline" size="sm" />}>
               <UserPlus className="size-4" /> Share
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent fullScreenOnMobile>
               <DialogHeader>
                 <DialogTitle>Share “{data.collection.name}”</DialogTitle>
               </DialogHeader>

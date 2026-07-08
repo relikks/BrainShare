@@ -186,7 +186,7 @@ function TypeDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent fullScreenOnMobile className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>{type ? "Edit event type" : "New event type"}</DialogTitle>
         </DialogHeader>
