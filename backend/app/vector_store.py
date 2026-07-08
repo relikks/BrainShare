@@ -189,6 +189,45 @@ async def search(
     return await asyncio.to_thread(_do)
 
 
+async def scroll(
+    space: str,
+    *,
+    limit: int,
+    collection_ids: Iterable[str] | None = None,
+    modalities: Iterable[Modality] | None = None,
+    file_ids: Iterable[str] | None = None,
+    ancestor_dir_id: str | None = None,
+    directory_id: str | None = None,
+    meta_filters: Iterable[Any] | None = None,
+) -> list[models.Record]:
+    """Filter-only retrieval (no query vector) — the points matching the filter, used
+    for query-less "apply filters" search where membership, not relevance, is the answer."""
+    name = _coll(space)
+    flt = _build_filter(
+        collection_ids=collection_ids,
+        modalities=modalities,
+        file_ids=file_ids,
+        ancestor_dir_id=ancestor_dir_id,
+        directory_id=directory_id,
+        meta_filters=meta_filters,
+    )
+
+    def _do() -> list[models.Record]:
+        client = _get_client()
+        if name not in {c.name for c in client.get_collections().collections}:
+            return []
+        recs, _ = client.scroll(
+            collection_name=name,
+            scroll_filter=flt,
+            limit=limit,
+            with_payload=True,
+            with_vectors=False,
+        )
+        return recs
+
+    return await asyncio.to_thread(_do)
+
+
 async def delete_file(file_id: str) -> None:
     """Purge every vector for a file across all spaces (edit/delete path)."""
     flt = _build_filter(file_id=file_id)

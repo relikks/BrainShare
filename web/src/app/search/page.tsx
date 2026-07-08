@@ -457,8 +457,18 @@ function SearchView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, cid, dir]);
 
+  // Filter-only search: with no query text, still run if the user has applied any
+  // narrowing filter — the backend returns matches at 1.00 (membership, not relevance).
+  const hasActiveFilters =
+    (applied.filters?.length ?? 0) > 0 ||
+    (applied.entity_ids?.length ?? 0) > 0 ||
+    (applied.pipelines?.length ?? 0) > 0 ||
+    (applied.modalities?.length ?? 0) > 0 ||
+    ((applied.collection_ids as string[] | null)?.length ?? 0) > 0 ||
+    Boolean(applied.directory_id);
+
   useEffect(() => {
-    if (!q.trim() || !getUuid()) {
+    if (!getUuid() || (!q.trim() && !hasActiveFilters)) {
       setHits(null);
       return;
     }

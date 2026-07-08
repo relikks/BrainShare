@@ -92,7 +92,9 @@ class MetaFilter(BaseModel):
 
 
 class SearchQuery(BaseModel):
-    query: str = Field(min_length=1)
+    # Empty = filter-only search: return everything matching the filters at 1.00
+    # (membership, not relevance) instead of ranking by a query vector.
+    query: str = Field(default="", max_length=1000)
     modalities: list[Modality] = Field(default_factory=lambda: list(Modality))
     # Named search pipelines (embedding.registry.PIPELINES keys). None/empty = every
     # pipeline of the selected modalities (legacy behaviour). Naming them narrows the

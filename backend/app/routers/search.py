@@ -119,6 +119,60 @@ async def search(payload: SearchQuery, user: CurrentUser, session: SessionDep) -
     if not pipelines:
         return SearchResults(hits=[])
 
+    # Filter-only search: no query text → return every file matching the filters,
+    # each at a perfect 1.00 (there is no relevance to rank, only membership).
+    if not payload.query.strip():
+        agg: dict[str, dict] = {}
+        limit = payload.top_k * OVERSAMPLE
+        for pipe in pipelines:
+            recs = await vector_store.scroll(
+                pipe.space,
+                limit=limit,
+                collection_ids=cids,
+                modalities=[pipe.modality],
+                file_ids=entity_file_ids,
+                ancestor_dir_id=ancestor_dir_id,
+                directory_id=directory_id,
+                meta_filters=payload.filters,
+            )
+            for r in recs:
+                pl = r.payload or {}
+                fid = pl.get("file_id")
+                if not fid:
+                    continue
+                entry = agg.get(fid)
+                if entry is None:
+                    entry = {"payload": pl, "spaces": set(), "pipelines": set()}
+                    agg[fid] = entry
+                entry["spaces"].add(pipe.space)
+                entry["pipelines"].add(pipe.key)
+        hits = [
+            SearchHit(
+                file_id=fid,
+                file_name=(pl := e["payload"]).get("file_name", ""),
+                modality=Modality(pl.get("file_modality", "text")),
+                collection_id=pl.get("collection_id", ""),
+                directory_id=pl.get("directory_id"),
+                dir_path=pl.get("dir_path", "/"),
+                breadcrumb=_crumbs(
+                    pl.get("collection_name", ""), pl.get("dir_path", "/"), pl.get("ancestor_dir_ids")
+                ),
+                score=1.0,
+                best=Segment(
+                    space=sorted(e["spaces"])[0],
+                    score=1.0,
+                    text=pl.get("text"),
+                    segment=pl.get("segment"),
+                    goto_url=pl.get("goto_url"),
+                ),
+                matched_spaces=sorted(e["spaces"]),
+                matched_pipelines=sorted(e["pipelines"]),
+            )
+            for fid, e in agg.items()
+        ]
+        hits.sort(key=lambda h: h.file_name.lower())
+        return SearchResults(hits=hits[: payload.top_k])
+
     embedder = get_embedder()
     raw_limit = payload.top_k * OVERSAMPLE
 
