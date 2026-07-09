@@ -109,14 +109,22 @@ export function FileViewer({ file }: { file: FileItem }) {
   );
 }
 
+interface ObjBox {
+  label: string;
+  bbox: number[];
+  score: number;
+}
+
 /** Image view with optional people overlay (coloured face boxes → person profile) and
- *  clickable object tags (→ search for that object). */
+ *  object overlay (boxes → search for that object) + clickable tags. */
 function ImageView({ file, url, frame }: { file: FileItem; url: string; frame: string }) {
   const router = useRouter();
   const [showPeople, setShowPeople] = useState(false);
+  const [showObjects, setShowObjects] = useState(false);
   const [faces, setFaces] = useState<FileFace[] | null>(null);
   const [nat, setNat] = useState<{ w: number; h: number } | null>(null);
   const tags = Array.isArray(file.meta?.tags) ? (file.meta.tags as string[]) : [];
+  const objects = (Array.isArray(file.meta?.objects) ? file.meta.objects : []) as ObjBox[];
   const namedCount = faces?.filter((f) => f.person_id).length ?? 0;
 
   useEffect(() => {
@@ -134,10 +142,14 @@ function ImageView({ file, url, frame }: { file: FileItem; url: string; frame: s
           <Users className="size-4" /> People
           {faces ? ` (${namedCount})` : ""}
         </Button>
-        {tags.length > 0 && (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Tag className="size-3.5" /> {tags.length} objects
-          </span>
+        {objects.length > 0 && (
+          <Button
+            size="sm"
+            variant={showObjects ? "primary" : "outline"}
+            onClick={() => setShowObjects((v) => !v)}
+          >
+            <Tag className="size-4" /> Objects ({objects.length})
+          </Button>
         )}
       </div>
 
@@ -179,6 +191,33 @@ function ImageView({ file, url, frame }: { file: FileItem; url: string; frame: s
                     {f.person_name}
                   </span>
                 )}
+              </button>
+            );
+          })}
+
+        {showObjects &&
+          nat &&
+          objects.map((o, i) => {
+            const [x1, y1, x2, y2] = o.bbox;
+            if (x2 <= x1 || y2 <= y1) return null;
+            return (
+              <button
+                // biome-ignore lint/suspicious/noArrayIndexKey: stable order per file
+                key={`${o.label}-${i}`}
+                type="button"
+                onClick={() => router.push(`/search?tag=${encodeURIComponent(o.label)}` as Route)}
+                title={`${o.label} · ${Math.round(o.score * 100)}% — search`}
+                style={{
+                  left: `${(x1 / nat.w) * 100}%`,
+                  top: `${(y1 / nat.h) * 100}%`,
+                  width: `${((x2 - x1) / nat.w) * 100}%`,
+                  height: `${((y2 - y1) / nat.h) * 100}%`,
+                }}
+                className="absolute cursor-pointer rounded border-2 border-emerald-400 transition-[box-shadow] hover:shadow-[0_0_0_3px_rgba(16,185,129,0.25)]"
+              >
+                <span className="absolute -top-5 left-0 max-w-32 truncate rounded bg-emerald-500 px-1 py-0.5 text-[10px] font-medium text-white">
+                  {o.label}
+                </span>
               </button>
             );
           })}

@@ -39,7 +39,8 @@ class Embedder(ABC):
     async def transcribe(self, clip: bytes) -> str: ...
     @abstractmethod
     async def describe_image(self, images: list[bytes]) -> list[dict]: ...
-    # describe_image → [{"caption": str, "tags": [str, ...]}] (RAM++ tags; caption unused)
+    # describe_image → [{"caption": "", "tags": [str, ...], "objects": [{label,bbox,score}, ...]}]
+    # tags = YOLOE object labels ∪ SigLIP2 zero-shot scene concepts; objects = the boxes.
     @abstractmethod
     async def detect_faces(self, images: list[bytes]) -> list[list[dict]]: ...
     # detect_faces → per image [{"bbox":[x1,y1,x2,y2], "score": float, "embedding":[512]}]
@@ -103,7 +104,7 @@ class StubEmbedder(Embedder):
     async def describe_image(self, images: list[bytes]) -> list[dict]:
         # Deterministic: hash-derived pseudo-tags so wiring is testable offline.
         return [
-            {"caption": f"stub image {hashlib.sha256(b).hexdigest()[:8]}", "tags": ["stub"]}
+            {"caption": "", "tags": ["stub"], "objects": []}
             for b in images
         ]
 
@@ -155,7 +156,19 @@ class ModalEmbedder(Embedder):
         return await self._cls("AudioEmbedder").transcribe.remote.aio(clip)
 
     async def describe_image(self, images: list[bytes]) -> list[dict]:
-        return await self._cls("ImageTagger").describe.remote.aio(images)
+        # Hybrid: YOLOE boxes (localizable objects) ∪ SigLIP2 zero-shot scene concepts.
+        import asyncio
+
+        objs, scenes = await asyncio.gather(
+            self._cls("ObjectDetector").detect.remote.aio(images, 0.35),
+            self._cls("ImageEmbedder").scene_tags.remote.aio(images),
+        )
+        out: list[dict] = []
+        for dets, scene in zip(objs, scenes):
+            dets = sorted(dets, key=lambda d: -d["score"])[:40]  # cap busy scenes
+            tags = sorted({d["label"] for d in dets} | set(scene))
+            out.append({"caption": "", "tags": tags, "objects": dets})
+        return out
 
     async def detect_faces(self, images: list[bytes]) -> list[list[dict]]:
         return await self._cls("FaceDetector").detect.remote.aio(images)

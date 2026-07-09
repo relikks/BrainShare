@@ -169,11 +169,13 @@ async def _embed(session, f: File) -> None:
         async def _objects() -> None:
             desc = (await emb.describe_image([data]))[0]
             tags = [t for t in (desc.get("tags") or []) if t]
+            objects = desc.get("objects") or []  # [{label,bbox,score}] — boxes for the overlay
+            # Persist tags + object boxes even if there are no tags (still record objects=[]).
+            f.meta = {**f.meta, "tags": tags, "objects": objects}
+            base["meta"] = f.meta
             if not tags:
                 return
             doc = ", ".join(tags)
-            f.meta = {**f.meta, "tags": tags}
-            base["meta"] = f.meta
             vec = (await emb.embed_text([doc]))[0]
             await vector_store.upsert(
                 "image_objects", [_point(vec, base, segment="objects", text=doc)]

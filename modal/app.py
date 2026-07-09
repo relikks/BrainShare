@@ -24,6 +24,21 @@ AUDIO_MODEL = "laion/clap-htsat-unfused"  # WavLink target once weights are publ
 VIDEO_MODEL = "microsoft/xclip-base-patch32"
 WHISPER_MODEL = "base"  # faster-whisper size for transcripts
 
+# Abstract / scene concepts YOLOE can't box (settings, landmarks, media type, mood).
+# SigLIP2 scores each image against these zero-shot → tags that complement the object
+# boxes so search recall keeps galaxy / landmark / drawing / sunset etc.
+SCENE_CONCEPTS = [
+    "indoor scene", "outdoor scene", "landscape", "cityscape", "nature", "beach", "forest",
+    "mountains", "desert", "ocean", "underwater", "sky", "space", "galaxy", "night sky",
+    "sunset", "sunrise", "snow", "rain", "fog", "landmark", "monument", "architecture",
+    "building", "street", "park", "garden", "room interior", "kitchen", "office", "restaurant",
+    "stadium", "museum", "church", "bridge", "portrait", "group photo", "selfie", "aerial view",
+    "close-up", "macro photo", "black and white photo", "drawing", "illustration", "painting",
+    "sketch", "diagram", "screenshot", "map", "chart", "document", "colorful", "dark", "bright",
+    "vintage", "minimalist", "abstract", "wedding", "party", "concert", "sports event", "travel",
+    "food", "winter", "summer", "autumn", "spring", "daytime", "nighttime",
+]
+
 app = modal.App("brainshare-embed")
 
 _cache = modal.Volume.from_name("brainshare-hf-cache", create_if_missing=True)
@@ -107,6 +122,15 @@ class ImageEmbedder:
         self.torch = torch
         self.proc = AutoProcessor.from_pretrained(IMAGE_MODEL)
         self.model = AutoModel.from_pretrained(IMAGE_MODEL).to("cuda").eval()
+        # Precompute the scene-concept text bank once → zero-shot tagging is a single
+        # matmul at ingest. Captured in the snapshot alongside the model.
+        self.scene_concepts = SCENE_CONCEPTS
+        prompts = [f"a photo of {c}" for c in SCENE_CONCEPTS]
+        with torch.no_grad():
+            inp = self.proc(
+                text=prompts, padding="max_length", truncation=True, return_tensors="pt"
+            ).to("cuda")
+            self.scene_feats = _l2norm(self.model.get_text_features(**inp))
 
     @modal.method()
     def embed(self, items: list, mode: str = "image") -> list[list[float]]:
@@ -123,6 +147,30 @@ class ImageEmbedder:
                 inputs = self.proc(images=imgs, return_tensors="pt").to("cuda")
                 feats = self.model.get_image_features(**inputs)
             return _l2norm(feats).cpu().tolist()
+
+    @modal.method()
+    def scene_tags(self, images: list[bytes], top_k: int = 3, thresh: float = 0.0) -> list[list[str]]:
+        """Zero-shot abstract/scene tags per image. SigLIP2 is sigmoid-trained so absolute
+        scores are tiny and hard to threshold across images — the RANKING is what's
+        reliable, so we take the top-k most-likely concepts (optionally floored by a
+        calibrated sigmoid prob). Complements YOLOE's object boxes."""
+        from PIL import Image
+
+        with self.torch.no_grad():
+            imgs = [Image.open(io.BytesIO(b)).convert("RGB") for b in images]
+            inputs = self.proc(images=imgs, return_tensors="pt").to("cuda")
+            feats = _l2norm(self.model.get_image_features(**inputs))
+            sims = feats @ self.scene_feats.T
+            scale = self.model.logit_scale.exp()
+            probs = (sims * scale + self.model.logit_bias).sigmoid()
+            out = []
+            for row in probs:
+                k = min(top_k, row.shape[-1])
+                vals, idx = row.topk(k)
+                out.append(
+                    [self.scene_concepts[i] for v, i in zip(vals.tolist(), idx.tolist()) if v >= thresh]
+                )
+            return out
 
 
 # ── Audio: CLAP (+ Whisper transcript) ────────────────────────────────────────
@@ -360,4 +408,57 @@ class FaceDetector:
                     if float(f.det_score) >= 0.5
                 ]
             )
+        return out
+
+
+# ── Objects: YOLOE (open-vocab, prompt-free = "detect everything") ────────────
+# Replaces RAM++ for the objects pipeline: exhaustive open-set detection with BOXES
+# (and masks — seg variant), so we can search "photos with a <thing>" AND highlight
+# where it is. Prompt-free weights carry an internal LVIS+Objects365 vocabulary.
+# Small + own repo deps (no transformers pin) → slots into the consolidated stack.
+yolo_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .apt_install("libgl1", "libglib2.0-0")
+    .pip_install("ultralytics", "pillow", "numpy<2", "hf-transfer", "huggingface-hub")
+    .env({"HF_HOME": CACHE, "YOLO_CONFIG_DIR": "/tmp/ultra"})
+)
+
+YOLOE_WEIGHTS = "yoloe-11l-seg-pf.pt"  # 11-large, segmentation, prompt-free
+
+
+@app.cls(gpu="T4", image=yolo_image, volumes={CACHE: _cache}, scaledown_window=180, min_containers=0)
+class ObjectDetector:
+    @modal.enter()
+    def load(self):
+        import os
+
+        from ultralytics import YOLOE
+
+        os.makedirs(f"{CACHE}/yoloe", exist_ok=True)
+        os.chdir(f"{CACHE}/yoloe")  # weights download here → cached in the Volume
+        self.model = YOLOE(YOLOE_WEIGHTS)
+        self.model.to("cuda")
+
+    @modal.method()
+    def detect(self, images: list[bytes], conf: float = 0.25, with_masks: bool = False) -> list[list[dict]]:
+        """Per image → [{label, bbox:[x1,y1,x2,y2], score}] over everything YOLOE sees
+        (prompt-free). bbox in pixel coords, same convention as faces."""
+        from PIL import Image
+
+        out = []
+        for b in images:
+            img = Image.open(io.BytesIO(b)).convert("RGB")
+            res = self.model.predict(img, conf=conf, device=0, verbose=False)[0]
+            names = res.names
+            dets = []
+            for box in res.boxes:
+                cls = int(box.cls[0])
+                dets.append(
+                    {
+                        "label": str(names.get(cls, cls)).lower(),
+                        "bbox": [float(v) for v in box.xyxy[0].tolist()],
+                        "score": float(box.conf[0]),
+                    }
+                )
+            out.append(dets)
         return out
