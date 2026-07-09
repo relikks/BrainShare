@@ -13,7 +13,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   EmptyState,
   Input,
   ViewModeToggle,
@@ -22,13 +21,14 @@ import {
   useHideOnScroll,
 } from "@drekis/shader";
 import {
-  Cpu,
   Folder,
   FolderPlus,
   FolderUp,
   Grid2x2,
   LayoutGrid,
   List,
+  Plus,
+  Settings,
   Trash2,
   Upload,
   UserPlus,
@@ -67,6 +67,8 @@ function Browser() {
   const [shareRole, setShareRole] = useState<Role>("viewer");
   const [preview, setPreview] = useState<FileItem | null>(null);
   const [modulesOpen, setModulesOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [view, setView] = useState<DriveView>("grid");
   const fileInput = useRef<HTMLInputElement>(null);
@@ -262,83 +264,30 @@ function Browser() {
       </div>
 
       <div className="space-y-5 p-5">
-        {/* toolbar */}
+        {/* hidden pickers driven by the create modal */}
+        <input ref={fileInput} type="file" multiple hidden onChange={(e) => onFiles(e.target.files)} />
+        <input
+          ref={folderInput}
+          type="file"
+          multiple
+          hidden
+          {...({ webkitdirectory: "" } as Record<string, string>)}
+          onChange={(e) => onFolderPicked(e.target.files)}
+        />
+
+        {/* toolbar — 3 actions; create/upload live behind the + modal */}
         <div className="flex flex-wrap items-center gap-2">
-          <Input
-            className="h-9 w-44"
-            placeholder="New folder…"
-            value={newFolder}
-            onChange={(e) => setNewFolder(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && makeFolder()}
-          />
-          <Button variant="outline" size="sm" onClick={makeFolder}>
-            <FolderPlus className="size-4" /> Folder
+          <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!!progress}>
+            <Plus className="size-4" /> New
           </Button>
-
-          <input
-            ref={fileInput}
-            type="file"
-            multiple
-            hidden
-            onChange={(e) => onFiles(e.target.files)}
-          />
-          <Button size="sm" onClick={() => fileInput.current?.click()} disabled={!!progress}>
-            <Upload className="size-4" /> Upload
+          <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
+            <UserPlus className="size-4" /> Share
           </Button>
-
-          <input
-            ref={folderInput}
-            type="file"
-            multiple
-            hidden
-            {...({ webkitdirectory: "" } as Record<string, string>)}
-            onChange={(e) => onFolderPicked(e.target.files)}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => folderInput.current?.click()}
-            disabled={!!progress}
-          >
-            <FolderUp className="size-4" /> Upload folder
+          <Button variant="outline" size="sm" onClick={() => setModulesOpen(true)}>
+            <Settings className="size-4" /> Settings
           </Button>
 
           {progress && <span className="text-xs text-muted-foreground">{progress}</span>}
-
-          <Dialog>
-            <DialogTrigger render={<Button variant="outline" size="sm" />}>
-              <UserPlus className="size-4" /> Share
-            </DialogTrigger>
-            <DialogContent fullScreenOnMobile>
-              <DialogHeader>
-                <DialogTitle>Share “{data.collection.name}”</DialogTitle>
-              </DialogHeader>
-              <div className="flex flex-col gap-3">
-                <Input
-                  placeholder="username"
-                  value={shareUser}
-                  onChange={(e) => setShareUser(e.target.value)}
-                />
-                <div className="flex gap-2">
-                  {(["viewer", "editor"] as Role[]).map((r) => (
-                    <Button
-                      key={r}
-                      size="sm"
-                      variant={shareRole === r ? "primary" : "outline"}
-                      onClick={() => setShareRole(r)}
-                    >
-                      {r}
-                    </Button>
-                  ))}
-                </div>
-                <Button onClick={share}>Share</Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-
-          <Button variant="outline" size="sm" onClick={() => setModulesOpen(true)}>
-            <Cpu className="size-4" /> Modules
-          </Button>
 
           <div className="ml-auto flex items-center gap-3">
             <span className="hidden whitespace-nowrap text-xs text-muted-foreground sm:inline">
@@ -373,6 +322,95 @@ function Browser() {
           />
         )}
       </div>
+
+      {/* + : create folder / upload — derived actions in one modal */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent fullScreenOnMobile className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Add to “{data.collection.name}”</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">New folder</label>
+              <div className="flex gap-2">
+                <Input
+                  className="flex-1"
+                  placeholder="Folder name"
+                  value={newFolder}
+                  onChange={(e) => setNewFolder(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newFolder.trim()) {
+                      makeFolder();
+                      setCreateOpen(false);
+                    }
+                  }}
+                />
+                <Button
+                  onClick={() => {
+                    makeFolder();
+                    setCreateOpen(false);
+                  }}
+                  disabled={!newFolder.trim()}
+                >
+                  <FolderPlus className="size-4" /> Create
+                </Button>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  fileInput.current?.click();
+                  setCreateOpen(false);
+                }}
+              >
+                <Upload className="size-4" /> Upload files
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  folderInput.current?.click();
+                  setCreateOpen(false);
+                }}
+              >
+                <FolderUp className="size-4" /> Upload folder
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Share */}
+      <Dialog open={shareOpen} onOpenChange={setShareOpen}>
+        <DialogContent fullScreenOnMobile className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Share “{data.collection.name}”</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <Input placeholder="username" value={shareUser} onChange={(e) => setShareUser(e.target.value)} />
+            <div className="flex gap-2">
+              {(["viewer", "editor"] as Role[]).map((r) => (
+                <Button
+                  key={r}
+                  size="sm"
+                  variant={shareRole === r ? "primary" : "outline"}
+                  onClick={() => setShareRole(r)}
+                >
+                  {r}
+                </Button>
+              ))}
+            </div>
+            <Button
+              onClick={() => {
+                share();
+                setShareOpen(false);
+              }}
+            >
+              Share
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <FilePreviewDialog file={preview} onClose={() => setPreview(null)} />
       <ModulesDialog
