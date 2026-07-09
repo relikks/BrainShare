@@ -4,13 +4,14 @@ import { MobileBottomNav, type BottomNavItem } from "@drekis/shader";
 import Link from "next/link";
 import type { Route } from "next";
 import { usePathname } from "next/navigation";
-import { DOMAINS, domainForPath } from "@/lib/domains";
+import { PRIMARY_DOMAINS, domainForPath } from "@/lib/domains";
 
-/** Mobile bottom nav mirroring the domains — auto-hides on scroll (shader). */
+/** Mobile bottom nav — the 5 primary domains only (CardForge keeps it small);
+ *  the rest live in the /domains selector. Auto-hides on scroll (shader). */
 export function BottomNav() {
   const pathname = usePathname();
   const active = domainForPath(pathname).id;
-  const items: BottomNavItem[] = DOMAINS.map((d) => ({
+  const items: BottomNavItem[] = PRIMARY_DOMAINS.map((d) => ({
     key: d.id,
     label: d.label,
     icon: d.icon,

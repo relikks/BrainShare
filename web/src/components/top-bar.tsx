@@ -9,17 +9,10 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  FilterBarButton,
   SearchBar,
 } from "@drekis/shader";
-import {
-  Brain,
-  ChevronDown,
-  Moon,
-  Plus,
-  SlidersHorizontal,
-  Sun,
-  User,
-} from "lucide-react";
+import { Brain, ChevronDown, Moon, Plus, Sun, User } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -98,14 +91,6 @@ export function TopBar() {
     router.push(`/c/${c.id}`);
   }
 
-  // Mobile filter trigger — only meaningful on /search; toggles the ?filters sheet.
-  function toggleFilters() {
-    const params = new URLSearchParams(sp.toString());
-    if (params.get("filters")) params.delete("filters");
-    else params.set("filters", "1");
-    router.push(`/search?${params.toString()}`);
-  }
-
   const DomainIcon = domain.icon;
   // The chip opens the standardized /domains page (CardForge pattern), carrying which
   // domain you're on so it lands highlighted.
@@ -145,18 +130,6 @@ export function TopBar() {
     </Button>
   );
 
-  const filterButton = domain.id === "search" ? (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="size-9 shrink-0 p-0 lg:hidden"
-      aria-label="Filters"
-      onClick={toggleFilters}
-    >
-      <SlidersHorizontal className="size-5" />
-    </Button>
-  ) : undefined;
-
   return (
     <AppTopBar
       brand={
@@ -179,7 +152,7 @@ export function TopBar() {
       }
       user={userMenu}
       primaryAction={plusAction}
-      filter={filterButton}
+      filter={<FilterBarButton />}
     />
   );
 }

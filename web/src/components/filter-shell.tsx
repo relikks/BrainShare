@@ -1,15 +1,15 @@
 "use client";
 
-import { Button, FilterSheet, cn, useHideOnScroll } from "@drekis/shader";
+import { FilterSheet, cn, useFilterBar, useHideOnScroll } from "@drekis/shader";
 import { SlidersHorizontal } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect } from "react";
 
 /**
  * FilterShell — the shared domain layout: a sticky, hide-on-scroll filter aside on the
  * left (desktop) and the domain content on the right. On mobile the aside is replaced
- * by a "Filters" button that opens the same filters in a full-screen sheet, so the
- * per-domain filter bar is reachable everywhere. Pages with no filters just pass none
- * and get a plain full-width content column.
+ * by the standardized header Filters button (shader FilterBarButton) which opens these
+ * same filters in a full-screen sheet. Pages with no filters pass none and get a plain
+ * full-width content column (and no header button).
  */
 export function FilterShell({
   filters,
@@ -21,8 +21,17 @@ export function FilterShell({
   children: ReactNode;
 }) {
   const hidden = useHideOnScroll(true);
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, setHasFilters } = useFilterBar();
   const hasFilters = Boolean(filters);
+
+  // Tell the shared top bar whether this page has filters (drives the header button).
+  useEffect(() => {
+    setHasFilters(hasFilters);
+    return () => {
+      setHasFilters(false);
+      setOpen(false);
+    };
+  }, [hasFilters, setHasFilters, setOpen]);
 
   return (
     <div className="flex w-full">
@@ -40,19 +49,7 @@ export function FilterShell({
         </aside>
       )}
 
-      <div className="min-w-0 flex-1 px-5 py-5">
-        {hasFilters && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="mb-4 lg:hidden"
-            onClick={() => setOpen(true)}
-          >
-            <SlidersHorizontal className="size-4" /> Filters
-          </Button>
-        )}
-        {children}
-      </div>
+      <div className="min-w-0 flex-1 px-5 py-5">{children}</div>
 
       {hasFilters && (
         <FilterSheet open={open} onClose={() => setOpen(false)} title={title} bottomInset="bottom-14">

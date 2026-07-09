@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  FilterBarProvider,
   ScrollDirectionProvider,
   SidebarInset,
   SidebarProvider,
@@ -28,16 +29,19 @@ export function Providers({ children }: { children: ReactNode }) {
         <AppSidebar />
         {/* hideThreshold = top-bar height (h-14 = 56px): hide only after scrolling past it */}
         <ScrollDirectionProvider hideThreshold={56}>
-          <SidebarInset>
-            <Suspense fallback={<div className="h-14 shrink-0 border-b border-border" />}>
-              <TopBar />
+          {/* Shared per-page filter-bar state: header button ↔ the page's filter sheet */}
+          <FilterBarProvider>
+            <SidebarInset>
+              <Suspense fallback={<div className="h-14 shrink-0 border-b border-border" />}>
+                <TopBar />
+              </Suspense>
+              {/* pb on mobile so content clears the fixed bottom nav */}
+              <main className="flex-1 pb-14 lg:pb-0">{children}</main>
+            </SidebarInset>
+            <Suspense fallback={null}>
+              <BottomNav />
             </Suspense>
-            {/* pb on mobile so content clears the fixed bottom nav */}
-            <main className="flex-1 pb-14 lg:pb-0">{children}</main>
-          </SidebarInset>
-          <Suspense fallback={null}>
-            <BottomNav />
-          </Suspense>
+          </FilterBarProvider>
         </ScrollDirectionProvider>
       </SidebarProvider>
       <Toaster />

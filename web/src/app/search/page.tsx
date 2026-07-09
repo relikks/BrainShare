@@ -11,6 +11,7 @@ import {
   SeeResultsButton,
   cn,
   toast,
+  useFilterBar,
   useHideOnScroll,
   type FilterBarState,
   type FilterFieldDef,
@@ -530,13 +531,15 @@ function SearchView() {
     onTagsChange: setSelectedTags,
   };
 
-  // Mobile filter sheet, toggled by the top bar's filter button via ?filters=1.
-  const filtersOpen = sp.get("filters") === "1";
-  function closeFilters() {
-    const params = new URLSearchParams(sp.toString());
-    params.delete("filters");
-    router.replace(`/search?${params.toString()}`);
-  }
+  // Mobile filter sheet, driven by the shared header Filters button (FilterBarButton).
+  const { open: filtersOpen, setOpen: setFiltersOpen, setHasFilters } = useFilterBar();
+  useEffect(() => {
+    setHasFilters(true);
+    return () => {
+      setHasFilters(false);
+      setFiltersOpen(false);
+    };
+  }, [setHasFilters, setFiltersOpen]);
 
   return (
     <div className="flex w-full">
@@ -544,10 +547,10 @@ function SearchView() {
 
       <FilterSheet
         open={filtersOpen}
-        onClose={closeFilters}
+        onClose={() => setFiltersOpen(false)}
         onSeeResults={() => {
           if (dirty) applyFilters();
-          closeFilters();
+          setFiltersOpen(false);
         }}
         seeResultsLabel={dirty ? "Apply filters" : "See results"}
         count={dirty ? undefined : (hits?.length ?? null)}
