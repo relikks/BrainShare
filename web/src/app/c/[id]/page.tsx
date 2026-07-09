@@ -403,11 +403,11 @@ interface ViewProps {
 // ── grid / large-grid: Folders then Files as preview cards ──
 function GridView({ id, large, dirs, files, onOpen, onRemove }: ViewProps & { large: boolean }) {
   const folderCols = large
-    ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
-    : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6";
+    ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6"
+    : "grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8";
   const fileCols = large
-    ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
-    : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6";
+    ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6"
+    : "grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8";
   return (
     <div className="space-y-6">
       {dirs.length > 0 && (
@@ -440,7 +440,7 @@ function GridView({ id, large, dirs, files, onOpen, onRemove }: ViewProps & { la
                   onClick={() => onOpen(f)}
                   className="group relative flex cursor-pointer flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-primary"
                 >
-                  <FileThumb file={f} className={cn("w-full", large ? "aspect-[16/10]" : "aspect-square")} />
+                  <FileThumb file={f} className={cn("w-full aspect-square")} />
                   <div className="flex items-center gap-2 border-t border-border/60 p-2.5">
                     <span
                       className={cn(

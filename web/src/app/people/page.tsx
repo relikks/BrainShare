@@ -8,7 +8,6 @@ import {
   DialogHeader,
   DialogTitle,
   Input,
-  SearchBar,
   Textarea,
   cn,
   toast,
@@ -53,10 +52,10 @@ export default function PeoplePage() {
 
 function PeopleInner() {
   const [people, setPeople] = useState<EntityOut[]>([]);
-  const [q, setQ] = useState("");
   const [view, setView] = useView("bs-people-view");
   const [editing, setEditing] = useState<EntityOut | null | "new">(null);
   const sp = useSearchParams();
+  const q = sp.get("q") ?? ""; // top bar drives the list filter for this domain
   const wantPerson = sp.get("person");
   const [consumedParam, setConsumedParam] = useState(false);
 
@@ -92,14 +91,7 @@ function PeopleInner() {
   }
 
   return (
-    <FilterShell
-      filters={
-        <div className="flex flex-col gap-2">
-          <span className="text-xs text-muted-foreground">Find a person</span>
-          <SearchBar value={q} onValueChange={setQ} placeholder="Search people…" size="sm" />
-        </div>
-      }
-    >
+    <FilterShell>
       <EntityBrowser
         icon={Users}
         title="People"

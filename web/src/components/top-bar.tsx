@@ -20,12 +20,17 @@ import {
   Sun,
   User,
 } from "lucide-react";
+import type { Route } from "next";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createCollection } from "@/lib/api";
 import { getUsername } from "@/lib/config";
 import { domainForPath } from "@/lib/domains";
+
+// Domains whose top-bar search FILTERS the in-page list live (via ?q=) instead of
+// running a semantic search. Everything else routes to the Search domain.
+const FILTER_DOMAINS = new Set(["people", "events", "event-types"]);
 
 export function TopBar() {
   const router = useRouter();
@@ -51,8 +56,30 @@ export function TopBar() {
   }
 
   const domain = domainForPath(pathname);
+  const isFilterDomain = FILTER_DOMAINS.has(domain.id);
+  const placeholder = isFilterDomain
+    ? `Search ${String(domain.label).toLowerCase()}…`
+    : pathname.startsWith("/c/")
+      ? sp.get("dir")
+        ? "Search in this folder…"
+        : "Search in this collection…"
+      : "Search your knowledge…";
+
+  // Filter domains reflect the query into ?q= on the current page (live list filter);
+  // semantic domains keep the local term until submit routes to /search.
+  function onQueryChange(v: string) {
+    setTerm(v);
+    if (isFilterDomain) {
+      const params = new URLSearchParams(sp.toString());
+      if (v.trim()) params.set("q", v);
+      else params.delete("q");
+      const qs = params.toString();
+      router.replace((qs ? `${pathname}?${qs}` : pathname) as Route);
+    }
+  }
 
   function submit() {
+    if (isFilterDomain) return; // already filtering live
     const v = term.trim();
     const params = new URLSearchParams();
     const onCollection = pathname.match(/^\/c\/([^/]+)/);
@@ -144,15 +171,9 @@ export function TopBar() {
         <SearchBar
           size="md"
           containerClassName="w-full"
-          placeholder={
-            pathname.startsWith("/c/")
-              ? sp.get("dir")
-                ? "Search in this folder…"
-                : "Search in this collection…"
-              : "Search your knowledge…"
-          }
+          placeholder={placeholder}
           value={term}
-          onValueChange={setTerm}
+          onValueChange={onQueryChange}
           onSubmit={submit}
         />
       }

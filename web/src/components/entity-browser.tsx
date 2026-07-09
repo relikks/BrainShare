@@ -49,8 +49,8 @@ export function EntityBrowser<T>({
   listHeader,
   renderRow,
   renderCard,
-  gridColsGrid = "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5",
-  gridColsLarge = "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
+  gridColsGrid = "grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8",
+  gridColsLarge = "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6",
 }: EntityBrowserProps<T>) {
   const large = view === "large";
   return (

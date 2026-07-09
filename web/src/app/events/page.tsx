@@ -8,13 +8,13 @@ import {
   DialogHeader,
   DialogTitle,
   Input,
-  SearchBar,
   Switch,
   Textarea,
   toast,
 } from "@drekis/shader";
 import { CalendarDays, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { EntityBrowser } from "@/components/entity-browser";
 import { FilterShell } from "@/components/filter-shell";
 import {
@@ -38,9 +38,17 @@ const LIST_COLS =
   "grid-cols-[1fr_36px] sm:grid-cols-[1fr_130px_36px] md:grid-cols-[1fr_150px_190px_36px]";
 
 export default function EventsPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading…</div>}>
+      <EventsInner />
+    </Suspense>
+  );
+}
+
+function EventsInner() {
   const [events, setEvents] = useState<EntityOut[]>([]);
   const [types, setTypes] = useState<EntityOut[]>([]);
-  const [q, setQ] = useState("");
+  const q = useSearchParams().get("q") ?? ""; // top bar drives the list filter
   const [view, setView] = useView("bs-events-view");
   const [editing, setEditing] = useState<EntityOut | null | "new">(null);
 
@@ -70,14 +78,7 @@ export default function EventsPage() {
   const typeOf = (e: EntityOut) => typeById.get(emeta(e, "event_type_id"));
 
   return (
-    <FilterShell
-      filters={
-        <div className="flex flex-col gap-2">
-          <span className="text-xs text-muted-foreground">Find an event</span>
-          <SearchBar value={q} onValueChange={setQ} placeholder="Search events…" size="sm" />
-        </div>
-      }
-    >
+    <FilterShell>
       <EntityBrowser
         icon={CalendarDays}
         title="Events"

@@ -8,12 +8,12 @@ import {
   DialogHeader,
   DialogTitle,
   Input,
-  SearchBar,
   cn,
   toast,
 } from "@drekis/shader";
 import { Tags, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { EntityBrowser } from "@/components/entity-browser";
 import { FilterShell } from "@/components/filter-shell";
 import {
@@ -37,8 +37,16 @@ const PRESETS = [
 const LIST_COLS = "grid-cols-[1fr_36px] sm:grid-cols-[1fr_120px_36px]";
 
 export default function EventTypesPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading…</div>}>
+      <EventTypesInner />
+    </Suspense>
+  );
+}
+
+function EventTypesInner() {
   const [types, setTypes] = useState<EntityOut[]>([]);
-  const [q, setQ] = useState("");
+  const q = useSearchParams().get("q") ?? ""; // top bar drives the list filter
   const [view, setView] = useView("bs-event-types-view");
   const [editing, setEditing] = useState<EntityOut | null | "new">(null);
 
@@ -64,14 +72,7 @@ export default function EventTypesPage() {
   }
 
   return (
-    <FilterShell
-      filters={
-        <div className="flex flex-col gap-2">
-          <span className="text-xs text-muted-foreground">Find an event type</span>
-          <SearchBar value={q} onValueChange={setQ} placeholder="Search types…" size="sm" />
-        </div>
-      }
-    >
+    <FilterShell>
       <EntityBrowser
         icon={Tags}
         title="Event types"
