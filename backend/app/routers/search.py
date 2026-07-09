@@ -26,6 +26,7 @@ router = APIRouter(tags=["search"])
 
 OVERSAMPLE = 4  # pull extra per space so merge-by-file has material
 RRF_K = 60  # standard reciprocal-rank-fusion damping
+MAX_HITS = 5  # top matching chunks surfaced per file (multi-hit within a doc)
 
 
 @router.get("/pipelines", response_model=PipelinesOut)
@@ -158,13 +159,17 @@ async def search(payload: SearchQuery, user: CurrentUser, session: SessionDep) -
                     pl.get("collection_name", ""), pl.get("dir_path", "/"), pl.get("ancestor_dir_ids")
                 ),
                 score=1.0,
-                best=Segment(
-                    space=sorted(e["spaces"])[0],
-                    score=1.0,
-                    text=pl.get("text"),
-                    segment=pl.get("segment"),
-                    goto_url=pl.get("goto_url"),
+                best=(
+                    _fo_seg := Segment(
+                        space=sorted(e["spaces"])[0],
+                        score=1.0,
+                        text=pl.get("text"),
+                        segment=pl.get("segment"),
+                        goto_url=pl.get("goto_url"),
+                        loc=pl.get("loc"),
+                    )
                 ),
+                hits=[_fo_seg],
                 matched_spaces=sorted(e["spaces"]),
                 matched_pipelines=sorted(e["pipelines"]),
             )
@@ -213,6 +218,7 @@ async def search(payload: SearchQuery, user: CurrentUser, session: SessionDep) -
                     "spaces": set(),
                     "pipelines": set(),
                     "best": None,
+                    "segs": [],  # every matching chunk (for multi-hit); trimmed at build
                     "payload": pl,
                 }
                 best[fid] = entry
@@ -222,21 +228,36 @@ async def search(payload: SearchQuery, user: CurrentUser, session: SessionDep) -
                 seen_files.add(fid)
                 entry["rrf"] += 1.0 / (RRF_K + rank)
                 rank += 1
+            seg = Segment(
+                space=pipe.space,
+                pipeline=pipe.key,
+                score=score,
+                text=pl.get("text"),
+                segment=pl.get("segment"),
+                goto_url=pl.get("goto_url"),
+                loc=pl.get("loc"),
+            )
+            entry["segs"].append(seg)
             if score > entry["score"]:
                 entry["score"] = score
                 entry["payload"] = pl
-                entry["best"] = Segment(
-                    space=pipe.space,
-                    pipeline=pipe.key,
-                    score=score,
-                    text=pl.get("text"),
-                    segment=pl.get("segment"),
-                    goto_url=pl.get("goto_url"),
-                )
+                entry["best"] = seg
 
     hits: list[SearchHit] = []
     for fid, e in best.items():
         pl = e["payload"]
+        # Top matching chunks of this file (best first), one per distinct segment —
+        # this is what lets the UI show several passages inside one document.
+        top_segs: list[Segment] = []
+        seen_segs: set = set()
+        for s in sorted(e["segs"], key=lambda s: s.score, reverse=True):
+            key = (s.space, s.segment)
+            if key in seen_segs:
+                continue
+            seen_segs.add(key)
+            top_segs.append(s)
+            if len(top_segs) >= MAX_HITS:
+                break
         hits.append(
             SearchHit(
                 file_id=fid,
@@ -250,6 +271,7 @@ async def search(payload: SearchQuery, user: CurrentUser, session: SessionDep) -
                 ),
                 score=e["score"],
                 best=e["best"],
+                hits=top_segs,
                 matched_spaces=sorted(e["spaces"]),
                 matched_pipelines=sorted(e["pipelines"]),
             )

@@ -18,6 +18,12 @@ dependencies = [
     "numpy",
     "pillow",
     "python-dotenv>=1.0",
+    # Text ingestion: token-accurate chunking + multi-format → Markdown extraction.
+    "tiktoken>=0.8",
+    "pypdf>=5.1",
+    "ebooklib>=0.18",
+    "markdownify>=0.13",
+    "beautifulsoup4>=4.12",
 ]
 
 [build-system]

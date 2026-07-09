@@ -47,6 +47,10 @@ for db in dbs:
     con.commit(); con.close()
 PY
 
+echo ">> install new text-ingestion deps into the venv (token chunking + pdf/epub/html → md)"
+.venv/bin/pip install -q -U tiktoken pypdf ebooklib markdownify beautifulsoup4 2>&1 | tail -3 || \
+  echo "   WARN: pip install failed — extraction will degrade to raw utf-8 decode (non-fatal)"
+
 echo ">> restart backend :8000 (re-run however it's currently running; loads backend/.env)"
 BACK="$(ps -eo args | grep -E '[u]vicorn' | head -1 || true)"
 echo "   was: ${BACK:-<not found, using default>}"

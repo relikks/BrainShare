@@ -65,6 +65,7 @@ export interface Segment {
   text: string | null;
   segment: string | null;
   goto_url: string | null;
+  loc?: { start: number; end: number; page?: number } | null; // source span for jump/highlight
 }
 export interface SearchHit {
   file_id: string;
@@ -76,6 +77,7 @@ export interface SearchHit {
   breadcrumb: Crumb[];
   score: number;
   best: Segment;
+  hits?: Segment[]; // top matching passages within this file (best first)
   matched_spaces: string[];
   matched_pipelines?: string[];
 }

@@ -21,7 +21,7 @@ from ..models import Collection, Directory, Face, File, FileStatus, Modality, ne
 from ..modules import module_on
 from ..storage import get_storage
 from .. import vector_store
-from .extractors import chunk_text, decode_text
+from .extractors import chunk_markdown, to_markdown
 
 log = logging.getLogger("brainshare.pipeline")
 
@@ -136,8 +136,13 @@ async def _embed(session, f: File) -> None:
     data = await get_storage().get(f.blob_key)
 
     # §1 — per-type metadata → File.meta + stamped into every point's payload (search filters on it).
-    text_decoded = decode_text(data, f.name) if f.modality is Modality.text else None
-    f.meta = _extract_meta(f.modality, data, f.name, text_decoded)
+    # Text files are normalised to Markdown up front (pdf/epub/html → md; txt/md already
+    # are). page_spans carries per-page offsets (PDF) so chunks can record their page.
+    text_md: str | None = None
+    page_spans: list[tuple[int, int]] = []
+    if f.modality is Modality.text:
+        text_md, page_spans = to_markdown(data, f.name, f.mime)
+    f.meta = _extract_meta(f.modality, data, f.name, text_md)
     base["meta"] = f.meta
 
     emb = get_embedder()
@@ -161,7 +166,11 @@ async def _embed(session, f: File) -> None:
             status[pipeline] = "failed"
 
     if f.modality is Modality.text:
-        await step("text.semantic", None, lambda: _embed_transcript_or_text(emb, base, text_decoded))
+        await step(
+            "text.semantic",
+            None,
+            lambda: _embed_text_chunks(emb, base, text_md or "", page_spans=page_spans),
+        )
 
     elif f.modality is Modality.image:
         # Objects first: its caption/tags land in File.meta before the visual point is
@@ -227,7 +236,7 @@ async def _embed(session, f: File) -> None:
             await vector_store.upsert("audio", [_point(avec, base, segment="audio", text=f.name)])
 
         async def _transcript() -> None:
-            await _embed_transcript_or_text(emb, base, await emb.transcribe(data), label="transcript")
+            await _embed_text_chunks(emb, base, await emb.transcribe(data), label="transcript")
 
         await step("audio.sound", "audio", _sound)
         await step("audio.transcript", "transcription", _transcript)
@@ -242,7 +251,7 @@ async def _embed(session, f: File) -> None:
             await vector_store.upsert("audio", [_point(avec, base, segment="audio-track", text=f.name)])
 
         async def _transcript() -> None:
-            await _embed_transcript_or_text(emb, base, await emb.transcribe(data), label="transcript")
+            await _embed_text_chunks(emb, base, await emb.transcribe(data), label="transcript")
 
         await step("video.visual", "video", _visual)
         await step("video.soundtrack", "audio", _soundtrack)
@@ -251,12 +260,19 @@ async def _embed(session, f: File) -> None:
     f.index_status = status  # assignment (not mutation) so the JSON column is flagged dirty
 
 
-async def _embed_transcript_or_text(emb, base: dict, text: str, label: str = "chunk") -> None:
-    chunks = chunk_text(text)
+async def _embed_text_chunks(
+    emb, base: dict, text: str, *, label: str = "chunk", page_spans: list[tuple[int, int]] | None = None
+) -> None:
+    """Chunk markdown/transcript into 512-token windows (128 overlap) and embed each,
+    stamping its source span (and page, for PDFs) as `loc` so search can highlight."""
+    chunks = chunk_markdown(text, page_spans=page_spans)
     if not chunks:
         return
-    vecs = await emb.embed_text(chunks)
-    points = [
-        _point(v, base, segment=f"{label}-{i}", text=chunks[i]) for i, v in enumerate(vecs)
-    ]
+    vecs = await emb.embed_text([c.text for c in chunks])
+    points = []
+    for c, v in zip(chunks, vecs):
+        loc: dict = {"start": c.start, "end": c.end}
+        if c.page is not None:
+            loc["page"] = c.page
+        points.append(_point(v, base, segment=f"{label}-{c.index}", text=c.text, loc=loc))
     await vector_store.upsert("text", points)

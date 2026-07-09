@@ -118,6 +118,7 @@ class Segment(BaseModel):
     text: str | None = None
     segment: str | None = None  # chunk idx / window ts / frame ts label
     goto_url: str | None = None
+    loc: dict | None = None  # source location for jump/highlight: {start,end} (text/pdf char offsets)
 
 
 class SearchHit(BaseModel):
@@ -130,6 +131,7 @@ class SearchHit(BaseModel):
     breadcrumb: list[Crumb]
     score: float  # best cosine across pipelines (display); ordering may be RRF-fused
     best: Segment
+    hits: list[Segment] = Field(default_factory=list)  # top matching chunks of this file (best first)
     matched_spaces: list[str]
     matched_pipelines: list[str] = Field(default_factory=list)
 

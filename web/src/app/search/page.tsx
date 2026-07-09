@@ -19,6 +19,8 @@ import {
 } from "@drekis/shader";
 import {
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   FileText,
   Folder,
@@ -58,6 +60,7 @@ import {
   type Modality,
   type PipelineInfo,
   type SearchHit,
+  type Segment,
 } from "@/lib/types";
 
 const ICON: Record<Modality, typeof FileText> = {
@@ -71,6 +74,33 @@ const ICON: Record<Modality, typeof FileText> = {
 // Collapse it for display (fixes already-embedded docs without a reindex).
 function cleanSegment(text: string): string {
   return text.replace(/\.\s*\.\s+/g, ". ");
+}
+
+const PAGE_SIZE = 8; // hits per page (client-side pagination over the top-k)
+
+// Highlight the query terms inside a matched passage. split() with a capturing
+// group leaves matches at the odd indices — no stateful-regex pitfalls.
+function highlight(text: string, q: string) {
+  const terms = q.trim().split(/\s+/).filter((t) => t.length >= 2);
+  if (!terms.length) return text;
+  const esc = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const parts = text.split(new RegExp(`(${esc.join("|")})`, "gi"));
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <mark key={i} className="rounded bg-primary/20 px-0.5 text-foreground">
+        {part}
+      </mark>
+    ) : (
+      part
+    ),
+  );
+}
+
+// A short position tag for a passage: page (PDF) or its passage number (chunk idx).
+function segLabel(seg: Segment): string | null {
+  if (seg.loc?.page) return `p. ${seg.loc.page}`;
+  const m = seg.segment?.match(/-(\d+)$/);
+  return m ? `passage ${Number(m[1]) + 1}` : null;
 }
 
 /** The "Search by" tree: one boolean field per file type; nested behind its
@@ -293,6 +323,80 @@ function HitThumb({ id, name, onClick }: { id: string; name: string; onClick: ()
   );
 }
 
+/** Result pager — windowed page numbers with first/last, and the current page +
+ *  total shown at the end of the results (as requested). */
+function Pager({
+  page,
+  totalPages,
+  onGo,
+  total,
+}: {
+  page: number;
+  totalPages: number;
+  onGo: (p: number) => void;
+  total: number;
+}) {
+  const win = 2;
+  const nums: number[] = [];
+  for (let p = Math.max(1, page - win); p <= Math.min(totalPages, page + win); p++) nums.push(p);
+  const first = nums[0];
+  const last = nums[nums.length - 1];
+  return (
+    <div className="mt-6 flex flex-col items-center gap-2 border-t border-border pt-4">
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1 px-2"
+          disabled={page <= 1}
+          onClick={() => onGo(page - 1)}
+        >
+          <ChevronLeft className="size-4" /> Prev
+        </Button>
+        {first > 1 && (
+          <>
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => onGo(1)}>
+              1
+            </Button>
+            {first > 2 && <span className="px-1 text-muted-foreground">…</span>}
+          </>
+        )}
+        {nums.map((p) => (
+          <Button
+            key={p}
+            variant={p === page ? "primary" : "ghost"}
+            size="sm"
+            className="h-8 w-8 p-0"
+            onClick={() => onGo(p)}
+          >
+            {p}
+          </Button>
+        ))}
+        {last < totalPages && (
+          <>
+            {last < totalPages - 1 && <span className="px-1 text-muted-foreground">…</span>}
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => onGo(totalPages)}>
+              {totalPages}
+            </Button>
+          </>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1 px-2"
+          disabled={page >= totalPages}
+          onClick={() => onGo(page + 1)}
+        >
+          Next <ChevronRight className="size-4" />
+        </Button>
+      </div>
+      <div className="text-xs text-muted-foreground">
+        Page {page} of {totalPages} · {total} results
+      </div>
+    </div>
+  );
+}
+
 function SearchView() {
   const sp = useSearchParams();
   const router = useRouter();
@@ -309,6 +413,7 @@ function SearchView() {
   const [filterState, setFilterState] = useState<FilterBarState>({});
   const [preview, setPreview] = useState<FileItem | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1); // client-side pagination over the result set
   const [collections, setCollections] = useState<Collection[]>([]);
   const [scopeCids, setScopeCids] = useState<string[]>([]); // [] = any collection
   const [tagCounts, setTagCounts] = useState<{ tag: string; count: number }[]>([]);
@@ -446,6 +551,7 @@ function SearchView() {
       directory_id: dir,
       include_subdirs: subdirs,
       filters: metaFilters,
+      top_k: 60, // pull a deep result set; the UI paginates it client-side
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dir, subdirs, (searchCollectionIds ?? []).join(","), selectedPeople.join(","), peopleMatch, [...mods].sort().join(","), (effectivePipes ?? []).join(","), JSON.stringify(metaFilters)],
@@ -490,6 +596,9 @@ function SearchView() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, JSON.stringify(applied)]);
+
+  // New result set → back to page 1.
+  useEffect(() => setPage(1), [hits]);
 
   function clearScope() {
     const params = new URLSearchParams();
@@ -541,6 +650,13 @@ function SearchView() {
     };
   }, [setHasFilters, setFiltersOpen]);
 
+  const totalPages = hits ? Math.max(1, Math.ceil(hits.length / PAGE_SIZE)) : 1;
+  const pageHits = hits ? hits.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) : [];
+  function goToPage(p: number) {
+    setPage(Math.min(Math.max(1, p), totalPages));
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   return (
     <div className="flex w-full">
       <Filters {...filterProps} dirty={dirty} onApply={applyFilters} />
@@ -577,8 +693,9 @@ function SearchView() {
         ) : hits === null ? null : hits.length === 0 ? (
           <EmptyState title="No matches" description="Try different words or enable more modalities." />
         ) : (
+          <>
           <div className="space-y-3">
-            {hits.map((h) => {
+            {pageHits.map((h) => {
               const Icon = ICON[h.modality];
               const via = h.matched_pipelines?.length
                 ? h.matched_pipelines.map((k) => labelOf[k] ?? k)
@@ -589,6 +706,9 @@ function SearchView() {
                 query: h.directory_id ? { dir: h.directory_id } : undefined,
               };
               const pct = Math.round(Math.max(0, Math.min(1, h.score)) * 100);
+              // The passages to show: the top matching chunks of this file (best first),
+              // falling back to the single best segment for legacy/non-text hits.
+              const passages: Segment[] = h.hits?.length ? h.hits : h.best?.text ? [h.best] : [];
               return (
                 <div key={h.file_id} className="rounded-xl px-1 py-1.5 transition-colors hover:bg-muted/30">
                  <div className="flex gap-4">
@@ -617,6 +737,12 @@ function SearchView() {
                         {h.file_name}
                       </button>
                       <Badge variant="secondary">{h.modality}</Badge>
+                      {passages.length > 1 && (
+                        <Badge variant="outline" className="gap-1">
+                          <Layers className="size-3" />
+                          {passages.length} passages
+                        </Badge>
+                      )}
                       <span className="ms-auto text-xs text-muted-foreground">
                         {h.score.toFixed(3)}
                       </span>
@@ -627,7 +753,7 @@ function SearchView() {
                       >
                         <FolderOpen className="size-3.5" /> Go to
                       </Link>
-                      {h.best?.text && (
+                      {passages.length > 0 && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -656,16 +782,34 @@ function SearchView() {
                         </span>
                       ))}
                     </div>
-                    {h.best?.text && (
-                      <p
-                        className={cn(
-                          "text-sm text-foreground/80",
-                          !isOpen && "line-clamp-3",
-                        )}
-                      >
-                        {cleanSegment(h.best.text)}
-                      </p>
-                    )}
+                    {passages.length > 0 &&
+                      (isOpen ? (
+                        // Expanded: every matching passage of this file, best first,
+                        // each with its position (page / passage no.) and its score.
+                        <ol className="mt-1 space-y-2 border-s-2 border-primary/20 ps-3">
+                          {passages.map((seg, i) => {
+                            const label = segLabel(seg);
+                            return (
+                              <li key={`${seg.space}-${seg.segment}-${i}`} className="space-y-0.5">
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  {label && (
+                                    <span className="font-medium text-foreground/70">{label}</span>
+                                  )}
+                                  <span className="ms-auto tabular-nums">{seg.score.toFixed(3)}</span>
+                                </div>
+                                <p className="text-sm text-foreground/80">
+                                  {highlight(cleanSegment(seg.text ?? ""), q)}
+                                </p>
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      ) : (
+                        // Collapsed: just the single best passage, clamped.
+                        <p className="line-clamp-3 text-sm text-foreground/80">
+                          {highlight(cleanSegment(passages[0].text ?? ""), q)}
+                        </p>
+                      ))}
                     {via.length > 0 && (
                       <div className="text-xs text-muted-foreground">
                         matched via {via.join(", ")}
@@ -684,6 +828,10 @@ function SearchView() {
               );
             })}
           </div>
+          {totalPages > 1 && (
+            <Pager page={page} totalPages={totalPages} onGo={goToPage} total={hits.length} />
+          )}
+          </>
         )}
       </div>
 
