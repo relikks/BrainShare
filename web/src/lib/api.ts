@@ -1,7 +1,9 @@
 "use client";
 
-import { getEndpoint, getUuid } from "./config";
+import { getBearer, getEndpoint } from "./config";
 import type {
+  ApiKeyCreated,
+  ApiKeyOut,
   Browse,
   Collection,
   Directory,
@@ -29,8 +31,8 @@ async function asError(res: Response): Promise<Error> {
 }
 
 function auth(): HeadersInit {
-  const uuid = getUuid();
-  return uuid ? { Authorization: `Bearer ${uuid}` } : {};
+  const bearer = getBearer();
+  return bearer ? { Authorization: `Bearer ${bearer}` } : {};
 }
 
 async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -42,6 +44,16 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
+
+// ── API keys (programmatic access — the secretary) ──
+export const listApiKeys = () => req<ApiKeyOut[]>("/apikeys");
+export const createApiKey = (name: string) =>
+  req<ApiKeyCreated>("/apikeys", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+export const revokeApiKey = (id: string) => req<void>(`/apikeys/${id}`, { method: "DELETE" });
 
 // ── identity ──
 export function registerUser(endpoint: string, username: string): Promise<UserOut> {

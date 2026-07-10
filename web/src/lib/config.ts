@@ -1,5 +1,7 @@
 "use client";
 
+import { getAccessToken } from "./supabase";
+
 // Identity = the backend endpoint + the per-user UUID (the only credential),
 // stored locally exactly like the extension. No secrets server-side.
 
@@ -23,6 +25,13 @@ export function getEndpoint(): string {
 export function getUuid(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem(UUID_KEY) || DEFAULT_UUID;
+}
+
+// The Bearer the API sends: a live Supabase-Auth token when signed in, otherwise
+// the legacy UUID (keeps the app working through the OAuth transition).
+export function getBearer(): string | null {
+  if (typeof window === "undefined") return null;
+  return getAccessToken() || getUuid();
 }
 export function getUsername(): string | null {
   if (typeof window === "undefined") return null;

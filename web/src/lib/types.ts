@@ -58,6 +58,17 @@ export interface MemberOut {
   username: string;
   role: Role;
 }
+export interface ApiKeyOut {
+  id: string;
+  name: string;
+  prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked: boolean;
+}
+export interface ApiKeyCreated extends ApiKeyOut {
+  key: string; // the full raw key — returned once, at creation
+}
 export interface Segment {
   space: string;
   pipeline?: string | null; // which search pipeline produced this segment's score
