@@ -17,9 +17,9 @@ async def register(payload: UserRegister, session: SessionDep) -> UserOut:
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Username '{username}' already exists",
         )
-    return UserOut(username=user.username, uuid=user.uuid)
+    return UserOut(id=user.id, username=user.username, email=user.email, uuid=user.uuid)
 
 
 @router.get("/me", response_model=UserOut)
 async def me(user: CurrentUser) -> UserOut:
-    return UserOut(username=user.username, uuid=user.uuid)
+    return UserOut(id=user.id, username=user.username, email=user.email, uuid=user.uuid)

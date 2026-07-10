@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db
 from .config import settings
-from .routers import branding, collections, directories, files, graph, search, users
+from .routers import apikeys, branding, collections, directories, files, graph, search, users
 
 logger = logging.getLogger("brainshare")
 
@@ -37,6 +37,7 @@ _STATIC_DIR.mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
 app.include_router(users.router)
+app.include_router(apikeys.router)
 app.include_router(collections.router)
 app.include_router(directories.router)
 app.include_router(files.router)

@@ -25,6 +25,24 @@ class Settings(BaseSettings):
     # When true, skip Modal and use deterministic local stub vectors (offline dev/tests).
     embed_stub: bool = False
 
+    # ── Auth (Supabase Auth as IdP) ──
+    # The app validates Supabase-issued JWTs. Asymmetric keys (ES256) are verified via
+    # the project JWKS; if the project still signs legacy HS256, set supabase_jwt_secret.
+    supabase_url: str | None = None  # e.g. https://rpolphgnfajyxdfnaszp.supabase.co
+    supabase_anon_key: str | None = None  # public; used to ask Supabase to validate a token
+    supabase_jwt_aud: str = "authenticated"
+    supabase_jwt_secret: str | None = None  # optional: local HS256 validation (legacy projects)
+    # Comma-separated emails granted admin (e.g. run data migration / see everyone).
+    admin_emails: str = ""
+
+    @property
+    def supabase_jwks_url(self) -> str | None:
+        return f"{self.supabase_url}/auth/v1/.well-known/jwks.json" if self.supabase_url else None
+
+    @property
+    def admin_email_list(self) -> list[str]:
+        return [e.strip().lower() for e in self.admin_emails.split(",") if e.strip()]
+
     # ── App ──
     cors_origins: str = "chrome-extension://*,http://localhost:5173,http://localhost:4700"
     brand_name: str = "BrainShare"

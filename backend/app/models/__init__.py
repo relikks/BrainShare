@@ -1,4 +1,5 @@
 from .entities import (
+    ApiKey,
     Collection,
     CollectionMember,
     Directory,
@@ -11,6 +12,7 @@ from .enums import EntityKind, FileStatus, Modality, Role
 from .graph import Entity, Face, FileEntity
 
 __all__ = [
+    "ApiKey",
     "Collection",
     "CollectionMember",
     "Directory",

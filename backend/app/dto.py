@@ -140,6 +140,24 @@ class SearchResults(BaseModel):
     hits: list[SearchHit]
 
 
+# ── API keys (programmatic access — the secretary) ──
+class ApiKeyCreate(BaseModel):
+    name: str = Field(default="", max_length=120)
+
+
+class ApiKeyOut(_FromAttrs):
+    id: str
+    name: str
+    prefix: str  # first chars, to identify the key (the rest is never stored)
+    created_at: datetime
+    last_used_at: datetime | None = None
+    revoked: bool = False
+
+
+class ApiKeyCreated(ApiKeyOut):
+    key: str  # the FULL raw key — returned once, at creation, never again
+
+
 # ── AI modules (per-collection) ──
 class ModuleInfo(BaseModel):
     name: str

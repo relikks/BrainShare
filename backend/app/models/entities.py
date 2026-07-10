@@ -19,8 +19,27 @@ def utcnow() -> datetime:
 class User(SQLModel, table=True):
     id: str = Field(default_factory=new_id, primary_key=True)
     username: str = Field(index=True, unique=True)
-    uuid: str = Field(index=True, unique=True)  # the bearer credential
+    # Legacy bearer credential (pre-OAuth). Kept for the transition + service scripts;
+    # real login is now Supabase-Auth JWT (oauth_sub/email) or an API key.
+    uuid: str = Field(default_factory=lambda: str(uuidlib.uuid4()), index=True, unique=True)
+    email: str | None = Field(default=None, index=True, unique=True)
+    oauth_sub: str | None = Field(default=None, index=True, unique=True)  # Supabase auth user id (JWT `sub`)
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class ApiKey(SQLModel, table=True):
+    """A programmatic credential that acts AS its user (the secretary uses one to
+    upload/search on the owner's behalf). Only the SHA-256 hash is stored — the raw
+    key (`bsk_…`) is shown exactly once at creation."""
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    user_id: str = Field(foreign_key="user.id", index=True)
+    name: str = ""  # human label, e.g. "secretary (apple watch)"
+    prefix: str = Field(index=True)  # first chars of the key, shown to identify it
+    hash: str = Field(index=True, unique=True)  # sha256(raw key)
+    created_at: datetime = Field(default_factory=utcnow)
+    last_used_at: datetime | None = None
+    revoked: bool = Field(default=False)
 
 
 class Collection(SQLModel, table=True):

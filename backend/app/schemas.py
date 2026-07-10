@@ -6,8 +6,10 @@ class UserRegister(BaseModel):
 
 
 class UserOut(BaseModel):
+    id: str | None = None
     username: str
-    uuid: str
+    email: str | None = None
+    uuid: str  # legacy bearer (kept during the OAuth transition)
 
 
 class ChunkAnchor(BaseModel):

@@ -24,6 +24,9 @@ dependencies = [
     "ebooklib>=0.18",
     "markdownify>=0.13",
     "beautifulsoup4>=4.12",
+    # Auth: validate Supabase-Auth JWTs (local ES256/HS256, or remote via anon key).
+    "pyjwt[crypto]>=2.9",
+    "httpx>=0.27",
 ]
 
 [build-system]
