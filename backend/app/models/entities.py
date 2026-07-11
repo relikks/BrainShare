@@ -13,7 +13,10 @@ def new_id() -> str:
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    # Naive UTC. The DB columns are TIMESTAMP WITHOUT TIME ZONE; a tz-aware value
+    # makes asyncpg raise "can't subtract offset-naive and offset-aware datetimes"
+    # on insert (Postgres is stricter than SQLite, which silently accepted it).
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class User(SQLModel, table=True):
