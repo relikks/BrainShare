@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { type FileFace, getFileFaces } from "@/lib/api";
-import { getEndpoint, getUuid } from "@/lib/config";
+import { getBearer, getEndpoint } from "@/lib/config";
 import { faceColor } from "@/lib/person";
 import type { FileItem } from "@/lib/types";
 
@@ -15,9 +15,9 @@ import type { FileItem } from "@/lib/types";
  *  `mime` and `Content-Disposition: inline`, but `<img src>` etc. can't carry the auth header, so we
  *  fetch with the Bearer token and hand the element an object URL instead. */
 async function fetchBlob(fileId: string): Promise<Blob> {
-  const uuid = getUuid();
+  const bearer = getBearer();
   const res = await fetch(`${getEndpoint()}/files/${fileId}/content`, {
-    headers: uuid ? { Authorization: `Bearer ${uuid}` } : {},
+    headers: bearer ? { Authorization: `Bearer ${bearer}` } : {},
   });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.blob();
